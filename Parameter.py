@@ -3,8 +3,8 @@ import numpy as np
 class Parameter(object):
 	'''An object to handle everything related to a parameter, aiming to be useful either as an input to mpfit or to my MCMC codes.'''
 
-	
-	def __init__(self, name=None, value=None):        
+
+	def __init__(self, name=None, value=None):
 		"""
 		'value' - the starting parameter value (but see the START_PARAMS
 				 parameter for more information).
@@ -26,7 +26,7 @@ class Parameter(object):
 				   together.
 		"""
 		self.limited = [False, False]
-	
+
 		"""
 		'limits' - a two-element float array.  Gives the
 				  parameter limits on the lower and upper sides,
@@ -60,15 +60,18 @@ class Parameter(object):
 				   many.  Default: 1 (all parameters printed)
 		"""
 		self.mpprint = True
-		
-		
+
+
 		# an attribute to keep track of an uncertainty estimate (currently symmetric)
 		self.uncertainty = 0.0
 		self.name = self.parname
-		
-		
+
+
 		self.independent = False
-		
+
+	def __repr__(self):
+		return "<Parameter {name}|{value}\pm{uncertainty}>".format(**self.__dict__)
+
 	@property
 	def parinfo(self):
 		return self.__dict__
@@ -76,8 +79,8 @@ class Parameter(object):
 	@parinfo.setter
 	def parinfo(self, value):
 		for key in value.keys():
-			self.__dict__[key] = value[key]    
-	
+			self.__dict__[key] = value[key]
+
 	def float(self, value=None, limits=None):
 		'''Helper function to cause a parameter to be able to float.'''
 		self.fixed = False
@@ -87,23 +90,22 @@ class Parameter(object):
 		if limits is not None:
 			self.limits = limits
 			self.limited = [True,True]
-			
+
 		shrink = 100.0
 		if self.value != 0:
 			self.step = np.minimum(np.abs(self.limits[1] - self.limits[0]), self.value/shrink)
 		if self.value == 0:
 			self.step = np.abs(self.limits[1] - self.limits[0])/shrink
-			
-			
+
+
 	def fix(self, value=None):
 		'''Helper function to fix a parameter.'''
 		self.fixed = True
 		if value is not None:
 			self.value=value
-			
+
 	def __str__(self):
 		return "{0:12} = {1}".format(self.name, self.value)
-	
+
 	def __float__(self):
 		return self.value
-

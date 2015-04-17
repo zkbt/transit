@@ -9,6 +9,7 @@ class Parameters(Talker):
 		if directory is not None:
 			self.load(directory)
 		else:
+			self.registered = []
 			for key, value in kwargs.iteritems():
 				# set up as a parameter
 				self.__dict__[key] = Parameter(key, value)
@@ -16,17 +17,12 @@ class Parameters(Talker):
 				# fix everything initially (probably unnecessary?)
 				self.__dict__[key].fix()
 
+				# register this key in the parameters list
+				self.registered.append(key)
+
 	@property
 	def keys(self):
-		k = self.__dict__.keys()
-		k.remove('mute')
-		k.remove('pithy')
-		k.remove('line')
-		try:
-			k.remove('prefix')
-		except:
-			pass
-		return k
+		return self.registered
 
 	def __str__(self):
 		s = ''
@@ -59,9 +55,10 @@ class Parameters(Talker):
 	def save(self, directory):
 		'''Tool to save a parameters to a directory.'''
 		tosave = {}
+		tosave['registered']  = self.registered
 		for k in self.keys:
 			tosave[k] = self.__dict__[k]
-			self.speak( '{0}'.format(self.__dict__[k]))
+			#self.speak( '{0}'.format(self.__dict__[k]))
 		filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
 		np.save(filename, tosave)
 		self.speak('saved to {0}'.format(filename))

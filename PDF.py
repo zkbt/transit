@@ -3,50 +3,72 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec
 from transit.Parameter import Parameter
+from zachopy.Talker import Talker
 
-class PDF(object):
-	def __init__(self, parameters=None, covariance=None, samples=None):
-		'''Initialize a PDF, using either parameters and covariance, or samples'''
+# which attributes can be saved?
+saveable = ['names', 'values', 'covariance', 'samples']
 
-		# initialize the parameters
-		if parameters is None:
-			#figure out parameter names and values from samples
-			self.parameters = []
-			for key in samples.keys():
-				self.parameters.append(Parameter(key,np.mean(samples[key])))
-		else:
-			self.parameters=parameters
-		self.n = len(self.parameters)
+def load(filename):
+	return Sampled(filename=filename)
 
-		# initialize the covariance
-		if covariance is None:
-			# figure out covariance from samples
-			self.covariance = np.zeros((self.n, self.n))
-			for i in range(self.n):
-				for j in range(self.n):
-					dx = samples[self.parameters[i].name][:] - self.parameters[i].value
-					dy = samples[self.parameters[j].name][:] - self.parameters[j].value
-					self.covariance[i,j] = np.mean(dx*dy)
-		else:
-			self.covariance = covariance
+class PDF(Talker):
+	"""an instance of Probability Density Function can [visualize, print, marginalize] a distribution"""
 
-		if samples is None:
-			# simulate some samples from the parameter values and the covariance matrix
-			# self.simulateSamples()
-			for i in range(self.n):
-				self.parameters[i].uncertainty = np.sqrt(self.covariance[i,i])
-		else:
-			self.samples = samples
-			for i in range(self.n):
-				self.parameters[i].uncertainty = np.std(self.samples[self.parameters[i].name])
+	def __init__(self, filename=None, **kwargs):
+		"""general initialization for PDF instances"""
 
-		# make a few arrays to make things more convenient
-		self.names = [parameter.name for parameter in self.parameters]
-		self.values = [parameter.value for parameter in self.parameters]
+		# initialize the talker
+		Talker.__init__(self)
 
-		self.color_samples = 'Black'
-		self.color_gauss = 'SeaGreen'
+		# by default, PDF starts out uninitialized
+		self._initialized = False
 
+		# if possible, load the PDF from a file
+		if filename is not None:
+			self.load(filename)
+
+	def load(self, filename):
+		"""load the PDF from a file"""
+
+		# load the saved dictionary
+		loaded = np.load(filename)[()]
+		for k in saveable:
+			self.__dict__[k] = loaded[k]
+
+		# recreate the parameter objects
+		self.parameters = []
+		for i in range(len(self.names)):
+			self.parameters.append(Parameter(self.names[i], self.values[i]))
+
+		self.populateUncertainties()
+		
+		# record the fact that this has been initialized
+		self._initialized = True
+
+		# provide an update
+		self.speak('loaded PDF from {0}'.format(filename))
+
+	def save(self, filename):
+		"""save the PDF to a file"""
+
+		# create a dictionary of the things to be saved
+		tosave = {}
+		for k in saveable:
+			tosave[k] = self.__dict__[k]
+
+		# save the dictionary
+		np.save(filename, tosave)
+
+		# provide an update
+		self.speak('saved PDF to {0}'.format(filename))
+
+	@property
+	def n(self):
+		return len(self.parameters)
+
+	def populateUncertainties(self):
+		for i in range(self.n):
+			self.parameters[i].uncertainty = np.sqrt(self.covariance[i,i])
 
 	@property
 	def sigmas(self):
@@ -57,17 +79,6 @@ class PDF(object):
 	def correlation(self):
 		return self.covariance/self.sigmas.reshape(self.n, 1)/self.sigmas.reshape(1, self.n)
 
-	def simulateSamples(self, n=100):
-		'''Use parameter values and covariances to generate samples
-				(requires that these are both defined ahead of time.)'''
-		parameters = self.parameters
-		covariance = self.covariance
-		means = [parameter.value for parameter in parameters]
-
-		s = np.random.multivariate_normal(means, covariance, n)
-		self.samples = {}
-		for i in range(len(parameters)):
-			self.samples[parameters[i].name] = s[:,i]
 
 	def plot(self, keys=None, plotcovariance=False, onesigmalabels=False, subsample=10000, nbins=100, dye=None):
 		'''Make a matrix plot of the PDF.'''
@@ -191,7 +202,7 @@ class PDF(object):
 		ax = self.pdfax[key][key]
 
 		# plot the histogram of the samples
-		ax.hist(self.samples[key], bins=nbins, linewidth=0, alpha=0.5, color=self.color_samples, normed=True)
+		ax.hist(self.samples[key], bins=nbins, linewidth=0, alpha=0.5, color=self.color, normed=True)
 
 		# plot the Gaussian approximation
 		if self.plotcovariance:
@@ -199,7 +210,7 @@ class PDF(object):
 			i = self.names.index(key)
 			mean = self.parameters[i].value
 			sigma = self.parameters[i].uncertainty
-			plt.plot(x, 1.0/np.sqrt(2*np.pi)/sigma*np.exp(-0.5*(x-mean)**2/sigma**2), color=self.color_gauss, alpha=0.6, linewidth=3)
+			plt.plot(x, 1.0/np.sqrt(2*np.pi)/sigma*np.exp(-0.5*(x-mean)**2/sigma**2), color=self.color, alpha=0.6, linewidth=3)
 
 	def plotpair(self, keyx, keyy):
 
@@ -211,7 +222,7 @@ class PDF(object):
 
 
 		ax = self.pdfax[keyx][keyy]
-		ax.plot(self.samples[keyx][::stride], self.samples[keyy][::stride],  marker='o', alpha=0.1, linewidth=0, color=self.color_samples, markeredgecolor='none')
+		ax.plot(self.samples[keyx][::stride], self.samples[keyy][::stride],  marker='o', alpha=0.1, linewidth=0, color=self.color, markeredgecolor='none')
 		nsigma = 2
 
 		if self.plotcovariance:
@@ -221,5 +232,91 @@ class PDF(object):
 			theta = np.linspace(0, 2*np.pi, 100)
 			x_ellipse, y_ellipse = cholesky.dot(np.array([np.sin(theta), np.cos(theta)]))
 			for nsigma in [1,2]:
-				kw = {"color":self.color_gauss, 'linewidth':5-nsigma*1, 'alpha':0.8 - 0.2*nsigma}
+				kw = {"color":self.color, 'linewidth':5-nsigma*1, 'alpha':0.8 - 0.2*nsigma}
 				plt.plot(nsigma*x_ellipse + self.parameters[i].value, nsigma*y_ellipse + self.parameters[j].value, **kw)
+
+
+class Sampled(PDF):
+
+	def __init__(self, samples=None, **kwargs):
+
+		"""initialize a PDF from a dictionary of samples"""
+		self.color = 'Black'
+		PDF.__init__(self, **kwargs)
+		if self._initialized:
+			return
+
+		# by default, the covariance matrix is empty (can calculate if need be)
+		self.covariance = None
+
+		# store the input samples
+		self.samples = samples
+
+		# pull out the parameter names
+		self.names = self.samples.keys()
+
+		# define the parameters, using the samples
+		self.parameters = []
+		for key in self.names:
+			self.parameters.append(Parameter(key,None))
+
+		# calculate the values
+		self.recenter()
+
+		# calculate the covariance matrix
+		self.calculateCovariance()
+
+		# populate the parameter uncertainties
+		self.populateUncertainties()
+
+
+	def recenter(self, method=np.mean):
+		"""recenter the parameter values from the samples, by default using the median"""
+		for p in self.parameters:
+			key = p.name
+			p.value = method(self.samples[key])
+		self.values = [parameter.value for parameter in self.parameters]
+
+	def calculateCovariance(self):
+		# figure out covariance from samples
+		self.covariance = np.zeros((self.n, self.n))
+		for i in range(self.n):
+			for j in range(self.n):
+				dx = self.samples[self.parameters[i].name][:] - self.parameters[i].value
+				dy = self.samples[self.parameters[j].name][:] - self.parameters[j].value
+				self.covariance[i,j] = np.mean(dx*dy)
+
+	def calculateUncertainties(self):
+		for i in range(self.n):
+			self.parameters[i].uncertainty = np.std(self.samples[self.parameters[i].name])
+
+
+class MVG(PDF):
+	def __init__(self, parameters=None, covariance=None, **kwargs):
+		"""initialize a PDF from a list of parameter objects and a covariance matrix"""
+		self.color = 'SeaGreen'
+		PDF.__init__(self, **kwargs)
+		if self._initialized:
+			return
+
+		# by default, there are no samples (can make some if we need them)
+		self.samples = None
+		self.parameters = parameters
+		self.names = [p.name for p in self.parameters]
+		self.values = [p.value for p in self.parameters]
+		self.covariance = covariance
+
+		# populate the parameter uncertainties
+		self.populateUncertainties()
+
+	def simulateSamples(self, n=100):
+		'''Use parameter values and covariances to generate samples
+				(requires that these are both defined ahead of time.)'''
+		parameters = self.parameters
+		covariance = self.covariance
+		means = [parameter.value for parameter in parameters]
+
+		s = np.random.multivariate_normal(means, covariance, n)
+		self.samples = {}
+		for i in range(len(parameters)):
+			self.samples[parameters[i].name] = s[:,i]

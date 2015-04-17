@@ -135,11 +135,11 @@ class TLC(Talker):
 		for k in self.__dict__.keys():
 			if k != 'TM' and k!= 'TLC' and 'ax_' not in k and 'points_' not in k and 'line_' not in k and 'figure_' not in k:
 				tosave[k] = self.__dict__[k]
-				self.speak( "      " + k)
-				if k == 'externalvariables':
-					self.speak( "      " + k + ', including:')
-					for evkey in tosave[k].keys():
-						self.speak( "          " + evkey)
+				#self.speak( "      " + k)
+				#if k == 'externalvariables':
+					#self.speak( "      " + k + ', including:')
+					#for evkey in tosave[k].keys():
+						#self.speak( "          " + evkey)
 
 		np.save(directory + 'TLC.npy', tosave)
 		self.speak("saving light curve to {directory}, including all its external variables".format(directory=directory))
@@ -147,10 +147,10 @@ class TLC(Talker):
 	def load(self, directory):
 		self.directory = directory
 		filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
-		self.speak('tring to load TLC from {0}, including:'.format(filename))
+		self.speak('trying to load TLC from {0}'.format(filename))
 		loaded = np.load(filename)[()]
 		for key in loaded.keys():
-			self.speak( '     ' + key)
+			#self.speak( '     ' + key)
 			self.__dict__[key] = loaded[key]
 
 
@@ -164,7 +164,7 @@ class TLC(Talker):
 			label = 'diagnostics'
 		else:
 			label = 'summary'
-		self.figure_diagnostics = plt.figure('light curve {0}'.format(label), figsize=(20,12))
+		self.figure_diagnostics = plt.figure('light curve {0}'.format(label), figsize=(20,12), dpi=50)
 		try:
 			# if the plot window is already set up, don't do anything!
 			self.ax_raw
@@ -176,7 +176,7 @@ class TLC(Talker):
 			# set up the light curve plots
 			if everything:
 				# create two columns, to populate with lightcurves on left and diagnostics on right
-				gs_overarching = matplotlib.gridspec.GridSpec(1, 3, width_ratios=[1, 0.3, 1.0], wspace=0.25, left=0.03, right=0.98)
+				gs_overarching = matplotlib.gridspec.GridSpec(1, 3, width_ratios=[1, 0.3, 1.0], wspace=0.25, left=0.09, right=0.98)
 
 				# create plots for light curves
 				gs_lightcurve = matplotlib.gridspec.GridSpecFromSubplotSpec(5, 2, hspace=0.05, wspace=0, width_ratios = [1,.2], height_ratios=[1,0.5,0.1,1,0.5], subplot_spec = gs_overarching[0])
@@ -394,7 +394,7 @@ class TLC(Talker):
 		self.speak('saving matrix of external variables to {0}'.format(filename))
 		plt.savefig(filename)
 
-	def DiagnosticsPlots(self, noiseassumedforplotting=0.001):
+	def DiagnosticsPlots(self, noiseassumedforplotting=0.001, directory=None):
 		'''A quick tool to plot what the light curve (and external variables) looks like.'''
 
 		self.speak('plotting light curves with diagnostics')
@@ -484,9 +484,13 @@ class TLC(Talker):
 		self.ax_corrected.set_ylim(1.0 - self.TM.planet.depth - buffer, 1.0 + buffer)
 
 		plt.draw()
-		filename = self.TM.directory + 'lightcurve.pdf'
+		if directory is None:
+			directory = self.TM.directory
+
+		filename = directory + 'lightcurveDiagnostics.pdf'
 		self.speak('saving light curve diagnostic plot to {0}'.format(filename))
 		plt.savefig(filename)
+
 	def linkModel(self, tm):
 		self.TM = tm
 		self.TM.TLC = self

@@ -1,18 +1,15 @@
-import numpy as np
-import matplotlib.pyplot as plt
+import numpy as np, matplotlib.pyplot as plt
 import eb
-import zachopy.borrowed.mpfit.mpfit as mpfit
 from Planet import Planet
 from Star import Star
 from Instrument import Instrument
 import PDF
 import zachopy.color, zachopy.oned
-import emcee
 import matplotlib.gridspec
 import matplotlib.patches
 import copy
 from zachopy.Talker import Talker
-
+from Fits import LM, MCMC
 plt.ion()
 ppm = 1e6
 
@@ -33,25 +30,28 @@ class TM(Talker):
 		# keep track of a depth for plotting, if necessary
 		self.depthassumedforplotting=depthassumedforplotting
 
-		# define the subsets of the parameters
-		if planet is None:
-			planet = Planet()
-		if star is None:
-			star = Star()
-		if instrument is None:
-			instrument = Instrument()
-		self.planet = planet
-		self.star = star
-		self.instrument = instrument
 
 		# load the model, if possible, and if a directory was given
 		self.directory = directory
 		if directory is not None and planet is None:
 			self.load(directory)
+		else:
+			# define the subsets of the parameters
+			if planet is None:
+				planet = Planet()
+			if star is None:
+				star = Star()
+			if instrument is None:
+				instrument = Instrument()
+			self.planet = planet
+			self.star = star
+			self.instrument = instrument
+
+
 
 	def load(self, directory):
 		'''Load parameters from directory.'''
-		self.directory = directory
+		#self.directory = directory
 		self.speak('loading TM from {0}'.format(directory))
 		self.planet = Planet(directory=directory)
 		self.star = Star(directory=directory)
@@ -59,7 +59,7 @@ class TM(Talker):
 
 	def save(self, directory):
 		'''Save parameters to directory.'''
-		self.directory = directory
+		#self.directory = directory
 		for x in (self.planet, self.star, self.instrument):
 			x.save(directory)
 
@@ -70,6 +70,7 @@ class TM(Talker):
 		self.TLC.TM = self
 		self.TLC.TLC = self.TLC
 
+	#@profile
 	def set_ebparams(self):
 		'''Set up the parameters required for eb. '''
 		# These are the basic parameters of the model.
@@ -134,6 +135,7 @@ class TM(Talker):
 		# to be so much more precise than the other parameters), and may need
 		# similar treatment.
 
+	#@profile
 	def planet_model(self, tlc=None, t=None):
 		'''Model of the planetary transit.'''
 		self.set_ebparams()
@@ -147,12 +149,14 @@ class TM(Talker):
 		typ.fill(eb.OBS_MAG)
 		return 10**(-0.4*eb.model(self.ebparams, t, typ))
 
+	##@profile
 	def instrument_model(self, tlc=None):
 		'''Model of the instrument.'''
 		if tlc is None:
 			tlc = self.TLC
 		return self.instrument.model(tlc)
 
+	##@profile
 	def model(self, tlc=None):
 		'''Model including both instrument and planetary transit.'''
 		return self.planet_model(tlc=tlc)*self.instrument_model(tlc=tlc)
@@ -226,6 +230,7 @@ class TM(Talker):
 			self.line_unphased = self.TLC.ax_unphased.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
 			self.line_unphased_zoom = self.TLC.ax_unphased_zoom.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
 
+
 	def plotDiagnostics(self):
 		'''Plot the light curve model, linear in time.'''
 		t_unphased = self.smooth_unphased_tlc.bjd - self.planet.t0.value
@@ -262,6 +267,7 @@ class TM(Talker):
 		except:
 			pass
 
+	##@profile
 	def deviates(self, p, fjac=None, plotting=False):
 		'''Return the normalized deviates (an input for mpfit).'''
 
@@ -293,162 +299,42 @@ class TM(Talker):
 		# mpfit wants a list with the first element containing a status code
 		return [status,devs]
 
-	def fastfit(self, plot=False, quiet=True, ldpriors=True, identifyoutliers=True):
-		'''Use LM (mpfit) to find the maximum probability parameters, and a covariance matrix.'''
-		self.speak('performing a fast LM fit, including parameters:')
+	def applyLDpriors(self):
+		self.speak('using atmosphere model as prior on LD coefficients')
+		self.u1prior_value = self.star.u1.value + 0.0
+		self.u2prior_value = self.star.u2.value + 0.0
+		self.u1prior_uncertainty = self.star.u1.uncertainty + 0.0
+		self.u2prior_uncertainty = self.star.u2.uncertainty + 0.0
 
-		# determine which parameters are floating
-		self.floating = []
-		for x in (self.planet, self.star, self.instrument):
-			d = x.__dict__
-			for key in d.keys():
-				try:
-					if d[key].fixed == False:
-						self.floating.append(key)
-						self.speak('    '+key)
-				except:
-					pass
-		if ldpriors:
-			self.speak('using atmosphere model as prior on LD coefficients')
-			self.u1prior_value = self.star.u1.value + 0.0
-			self.u2prior_value = self.star.u2.value + 0.0
-			self.u1prior_uncertainty = self.star.u1.uncertainty + 0.0
-			self.u2prior_uncertainty = self.star.u2.uncertainty + 0.0
-
-		# pull out the parameters into an array for mpfit
-		p0, parinfo = self.toArray()
-
-		# perform the LM fit, to get best fit parameters and covariance matrix
-		self.speak('running mpfit minimization')
-		self.mpfitted = mpfit.mpfit(self.deviates, p0, parinfo=parinfo, quiet=quiet)
-
-		# set the parameters to their fitted values
-		for i in range(len(self.parameters)):
-			self.parameters[i].value = self.mpfitted.params[i]
-
-		# determine the uncertainties, including a rescaling term
-		ok = (self.TLC.bad == 0).nonzero()
-
-		self.chisq = np.sum((self.TLC.residuals()[ok]/self.TLC.uncertainty[ok])**2)
-		self.dof = self.mpfitted.dof
-		self.rescaling = np.maximum(np.sqrt(self.chisq/self.dof), 1)
-		self.speak('acheived a chisq of {0:.2f}/{1} required a rescaling of {2:.2f}'.format(self.chisq, self.dof, self.rescaling))
-
-		if identifyoutliers:
-			r = self.TLC.residuals()[ok]
-			bad = (np.abs(r) > 4*1.48*zachopy.oned.mad(r))
-			self.TLC.bad[ok] = bad
-			self.speak("identified {0} new points as bad; refitting without them".format(np.sum(bad)))
-			self.fastfit(plot=plot, quiet=quiet, ldpriors=ldpriors, identifyoutliers=False)
-
-		self.covariance = self.mpfitted.covar*self.rescaling**2
-		for i in range(len(self.parameters)):
-			self.parameters[i].uncertainty = np.sqrt(self.covariance[i, i])
-
-		# plot the fit
-		#self.TLC.DiagnosticsPlots()
-		#self.TM.plot()
-
-		# pull out the parameters that actually varied, and plot their PDF
-		interesting = (self.covariance[range(len(self.parameters)), range(len(self.parameters))] > 0).nonzero()[0]
-
-		# create a PDF structure out of this covariance matrix
-		self.pdf_fast = PDF.PDF(parameters=self.parameters[interesting], covariance=self.covariance[interesting,:][:,interesting])
-
-		if plot:
-			self.TLC.DiagnosticsPlots()
-			self.TLC.ExternalsMatrixPlots()
-
+	##@profile
 	def lnprob(self, p):
+		"""Return the log posterior, calculated from the TM.deviates function (which may have included some conjugate Gaussian priors.)"""
+
+		# sum the deviates into a chisq-like thing
 		lnlikelihood = -np.sum(self.deviates(p)[-1]**2)/2.0
+
+		# initialize an empty constraint, which could freak out if there's something bad about this fit
 		constraints = 0.0
+
+		# loop over the parameters
+
+
 		for parameter in self.parameters:
-			inside = (parameter.value < np.max(parameter.limits)) & (parameter.value > np.min(parameter.limits))
-			if inside:
-				pass
-			else:
+
+			# if a parameter is outside its allowed range, then make the constraint very strong!
+			inside = (parameter.value < parameter.limits[1]) & (parameter.value > parameter.limits[0])
+			try:
+				assert(inside)
+			except AssertionError:
 				constraints -= 1e6
+
+		# return the constrained likelihood
 		return lnlikelihood + constraints
 
-	def slowfit(self, usecovariance=False, broad=True, nwalkers=100, nsteps=1000):
-		'''Use affine-invariant MCMC (the emcee) to sample from the parameter probability distribution.'''
+	def fastfit(self, **kwargs):
+		self.fitter = LM(self, **kwargs)
+		self.fitter.fit(**kwargs)
 
-
-
-		# pull out the parameters into an array for mpfit
-		p0, parinfo = self.toArray()
-		nparameters = len(p0)
-		nwalkers = 100
-
-		if usecovariance:
-			# make sure that a fast fit exists
-			self.speak('will use rough covariance matrix to initialize walkers')
-			try:
-				self.pdf_fast
-			except:
-				self.speak('performing a fast fit to estimate that initial covariance matrix')
-				self.fastfit(floating)
-
-
-		# setup the initial walker positions
-		initialwalkers = np.zeros((nwalkers, nparameters))
-		for i in range(nparameters):
-			parameter = self.parameters[i]
-			if usecovariance:
-				initialwalkers[:,i] = self.pdf_fast.samples[parameter.name][0:nwalkers]
-			else:
-				initialwalkers[:,i] = np.random.uniform(parameter.limits[0], parameter.limits[1], nwalkers)
-
-
-		# set up the emcee sampler
-		self.sampler = emcee.EnsembleSampler(nwalkers, nparameters, self.lnprob)
-
-
-		step = 100
-		# run a burn in step, and then reset
-		burnt = False
-		while burnt == False:
-			self.speak( "Running {0} burn-in steps, with {1} walkers.".format(step, nwalkers))
-			pos, prob, state = self.sampler.run_mcmc(initialwalkers, step)
-			samples = {}
-			for i in range(nparameters):
-				samples[self.floating[i]] = self.sampler.flatchain[:,i]
-			self.pdf_slow = PDF.PDF(samples=samples)#, covariance=self.pdf_fast.covariance)
-			self.pdf_slow.plot(subsample=10000)
-			answer = raw_input('Do you think we have burned in?')
-			if 'y' in answer:
-				burnt = True
-		self.sampler.reset()
-
-		leap = step*10
-		finished = False
-		while finished == False:
-			print "Running {0} steps with {1} walkers.".format(leap, nwalkers)
-
-			# start with the last set of walker positions from the burn in and run for realsies
-			self.sampler.run_mcmc(pos, leap)
-
-			ok = self.sampler.flatlnprobability > (np.max(self.sampler.flatlnprobability) - 100)
-			samples = {}
-			for i in range(nparameters):
-				samples[self.floating[i]] = self.sampler.flatchain[ok,i]
-
-			#best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
-			best = self.sampler.flatchain[np.random.choice(ok.nonzero()[0])]
-			print best
-			self.fromArray(best)
-			self.TLC.LightcurvePlots()
-			plt.draw()
-
-			self.chisq = -2*self.lnprob(best)
-			self.dof = len(self.TLC.bjd) - len(self.floating)
-			self.reduced_chisq = self.chisq/self.dof
-			print self.chisq, self.dof, self.reduced_chisq
-
-			self.pdf_slow = PDF.PDF(samples=samples)#, covariance=self.pdf_fast.covariance)
-			self.pdf_slow.plot(subsample=10000)
-			plt.draw()
-			np.save('temporary_pdf.npy', samples)
-			a = raw_input('Are you satisfied?')
-			if 'y' in a:
-				finished = True
+	def slowfit(self, **kwargs):
+		self.fitter = MCMC(self, **kwargs)
+		self.fitter.fit(**kwargs)
