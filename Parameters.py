@@ -46,8 +46,11 @@ class Parameters(Talker):
 	def load(self, directory):
 		filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
 		loaded = np.load(filename)[()]
+		self.registered = []
 		for key in loaded.keys():
-			self.__dict__[key] = loaded[key]
+			if key != 'registered':
+				self.__dict__[key] = loaded[key]
+				self.registered.append(key)
 		self.speak('loaded from {0}'.format(filename))
 
 
@@ -55,7 +58,6 @@ class Parameters(Talker):
 	def save(self, directory):
 		'''Tool to save a parameters to a directory.'''
 		tosave = {}
-		tosave['registered']  = self.registered
 		for k in self.keys:
 			tosave[k] = self.__dict__[k]
 			#self.speak( '{0}'.format(self.__dict__[k]))

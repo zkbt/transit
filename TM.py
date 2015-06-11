@@ -198,6 +198,9 @@ class TM(Talker):
 		for parameter in self.parameters:
 			parameter.value = array[count]
 			count += 1
+		#print count
+		#print array
+		assert(count > 0)
 
 	def toArray(self):
 		'''Define an parameter array, by pulling them out of the internal parameter attributes.'''
@@ -310,8 +313,15 @@ class TM(Talker):
 	def lnprob(self, p):
 		"""Return the log posterior, calculated from the TM.deviates function (which may have included some conjugate Gaussian priors.)"""
 
+
+
+		chisq = np.sum(self.deviates(p)[-1]**2)/2.0
+		N = np.sum(self.TLC.bad == 0)
+
 		# sum the deviates into a chisq-like thing
-		lnlikelihood = -np.sum(self.deviates(p)[-1]**2)/2.0
+		lnlikelihood = -N * np.log(self.instrument.rescaling.value) - chisq/self.instrument.rescaling.value**2
+		if np.isfinite(lnlikelihood) == False:
+			lnlikelihood = -1e9
 
 		# initialize an empty constraint, which could freak out if there's something bad about this fit
 		constraints = 0.0

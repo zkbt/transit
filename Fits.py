@@ -48,6 +48,7 @@ class Fit(Talker):
         #self.speak('  the best-fit model')
         self.model.load(self.directory)
 
+
 class LM(Fit):
     def __init__(self, model, **kwargs):
         Fit.__init__(self, model)
@@ -63,6 +64,7 @@ class LM(Fit):
             self.load()
         except:
 
+            self.model.defineParameterList()
             # populate an array with the parameters that are floating
             self.findFloating()
             # apply the limb darkening priors, if required
@@ -82,6 +84,7 @@ class LM(Fit):
 
             # determine the uncertainties, including a rescaling term, by calculating the chisq of the good points
             ok = (self.model.TLC.bad == 0).nonzero()
+            self.model.fromArray(self.mpfitted.params)
 
             self.notes = {}
             self.notes['chisq'] = np.sum((self.model.TLC.residuals()[ok]/self.model.TLC.uncertainty[ok])**2)
@@ -96,7 +99,7 @@ class LM(Fit):
             if identifyoutliers:
 
                 # where are the residuals beyond 4 sigma?
-                outlierthreshold = 4.0
+                outlierthreshold = 3.0
                 r = self.model.TLC.residuals()[ok]
                 bad = (np.abs(r) > outlierthreshold*1.48*zachopy.oned.mad(r))
 
@@ -112,15 +115,19 @@ class LM(Fit):
             for i in range(len(self.model.parameters)):
                 self.model.parameters[i].uncertainty = np.sqrt(self.covariance[i, i])
 
+
             # pull out the parameters that actually varied and create a PDF object out of them
             interesting = (self.covariance[range(len(self.model.parameters)), range(len(self.model.parameters))] > 0).nonzero()[0]
 
             # create a PDF structure out of this covariance matrix
             self.pdf = PDF.MVG(parameters=self.model.parameters[interesting],
                 covariance=self.covariance[interesting,:][:,interesting])
+            self.pdf.printParameters()
 
             self.save()
             if plot:
+                self.model.fromArray(self.mpfitted.params)
+                assert(self.model.planet.k.uncertainty > 0)
                 self.model.TLC.DiagnosticsPlots(directory=self.directory)
 
 
@@ -138,8 +145,12 @@ class MCMC(Fit):
         try:
             assert(remake==False)
             self.load()
-        except IOError:
+        except:
 
+
+            self.model.instrument.rescaling.float(value=1.0,limits=[0.5, 2.0])
+
+            self.model.defineParameterList()
             # populate an array with the parameters that are floating
             self.findFloating()
 
@@ -216,9 +227,9 @@ class MCMC(Fit):
             self.notes['dof'] = len(self.model.TLC.bjd) - len(self.floating)
             self.notes['reduced_chisq'] = self.notes['chisq']/self.notes['dof']
             self.notes['floating'] = self.floating
-
             self.pdf = PDF.Sampled(samples=samples)
-
+            self.pdf.printParameters()
+            self.notes['rescaling'] = np.array(self.pdf.values)[np.array(self.pdf.names) == 'rescaling'][0]
             self.save()
 
             if plot:

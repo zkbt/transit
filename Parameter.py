@@ -81,7 +81,7 @@ class Parameter(object):
 		for key in value.keys():
 			self.__dict__[key] = value[key]
 
-	def float(self, value=None, limits=None):
+	def float(self, value=None, limits=None, step=None, shrink = 100.0):
 		'''Helper function to cause a parameter to be able to float.'''
 		self.fixed = False
 		if value is not None:
@@ -91,7 +91,6 @@ class Parameter(object):
 			self.limits = limits
 			self.limited = [True,True]
 
-		shrink = 100.0
 		if self.value != 0:
 			self.step = np.minimum(np.abs(self.limits[1] - self.limits[0]), self.value/shrink)
 		if self.value == 0:
@@ -104,8 +103,34 @@ class Parameter(object):
 		if value is not None:
 			self.value=value
 
-	def __str__(self):
-		return "{0:12} = {1}".format(self.name, self.value)
 
 	def __float__(self):
 		return self.value
+
+	def exponent(self, number):
+		s = '{0}'.format(number)
+		if 'e' in s:
+			return s.replace('e', r'\times 10^{') + '}'
+		else:
+			return s
+
+	def string(self):
+		ndigits = -np.round(np.log10(self.uncertainty)).astype(np.int)+1
+		s = '${value} \pm {uncertainty}$'.format(value=self.exponent(np.round(self.value, decimals=ndigits)), uncertainty=self.exponent(np.round(self.uncertainty, decimals=ndigits)))
+		return s
+		#if ndigits < 0:
+		#	form = '.{0:.0f}f'.format(np.round(-ndigits + 1))
+
+			####### PICK UP HERE!
+		"""
+			if keyword_set(auto) then begin
+				ndig =alog10(mean([(pos_err), (neg_err)])) > (-100)
+				if ndig lt 0 then begin
+					f_errors = '(D20.' + strcompress(round(-ndig+1), /remo) + ')'
+				endif else begin
+					f_errors = '(I20)'; + strcompress(round(-ndig+1), /remo) + ')'
+				endelse
+				f_central = f_errors
+				threshold = 0.1
+				if abs((pos_err - sym_err)/sym_err) lt threshold and abs((neg_err-sym_err)/sym_err) lt threshold then sym =1
+			endif"""

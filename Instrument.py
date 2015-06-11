@@ -9,6 +9,8 @@ class Instrument(Parameters):
 
 		dict = {}
 
+		dict['rescaling'] = 1.0
+
 		# a constant out of transit flux level
 		try:
 			dict['C'] = np.median(tlc.flux)
@@ -26,6 +28,7 @@ class Instrument(Parameters):
 				dict['t_tothe{0:1d}'.format(power)] = 0.0
 		except:
 			pass
+
 
 		# include all the parameters explicitly defined here
 		Parameters.__init__(self, directory=directory, **dict)

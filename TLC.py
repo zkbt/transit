@@ -74,6 +74,8 @@ class TLC(Talker):
 		'''Populate a TLC from a MEarth file.'''
 		hdus = astropy.io.fits.open(filename)
 		data = hdus[1].data
+		header = hdus[1].header
+		self.data, self.header = data, header
 		#print data.columns
 		i_target = (data['class'] == 9).nonzero()[0]
 		assert(len(i_target == 1))
@@ -91,6 +93,16 @@ class TLC(Talker):
 
 		# populate the external variables, both as a list and as individual entries
 		self.externalvariables = {}
+
+
+		for key in ['tv', 'texp', 'off', 'rms', 'extc', 'see', 'ell', 'sky', 'nois', 'fang', 'iang'  ]:
+			self.externalvariables[key] = np.zeros(len(bjd))
+
+			for i in range(len(bjd)):
+				self.externalvariables[key][i] = header['{0}{1:.0f}'.format(key,i+1)]
+
+			self.externalvariables[key] = self.externalvariables[key][ok]
+
 		for key in ['xlc','ylc','airmass','sky']:
 			value=data[key][i_target][ok]
 			if len(value) == len(self.bjd):
@@ -188,7 +200,7 @@ class TLC(Talker):
 				self.to_correlate = []
 				for k in self.TM.floating:
 					if k != 'C':
-						if k in self.TM.instrument.__dict__.keys():
+						if k in self.TM.instrument.__dict__.keys() and k != 'rescaling':
 							self.to_correlate.append(k.split('_tothe')[0])
 				ncor = np.int(np.ceil(np.sqrt(len(self.to_correlate))))
 				gs_external = matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
@@ -233,6 +245,18 @@ class TLC(Talker):
 
 
 			if everything:
+
+				# create a plot to store an autocorrelation function
+				self.ax_text = plt.subplot(gs_diagnostics[0])
+
+				todisplay = self.TM.lastfit.pdf.listParameters()
+
+				todisplay += '\n'
+				todisplay += 'chisq = {chisq:.1f}/{dof:.0f}\nrescaling = {rescaling:.2f}'.format(**self.TM.lastfit.notes)
+
+				self.ax_text.text(-0.1, 1.1, todisplay, va='top', fontsize=11)
+				self.ax_text.axis('off')
+
 				# create a plot to store an autocorrelation function
 				self.ax_acf = plt.subplot(gs_diagnostics[1])
 				self.ax_acf.set_xlabel('Lag (in datapoints)')
@@ -409,7 +433,7 @@ class TLC(Talker):
 		time = self.TM.planet.timefrommidtransit(self.bjd)
 
 		notok = self.bad
-		for good in [True, False]:
+		for good in [False,True]:
 			if good:
 				ok = (self.bad == 0).nonzero()
 				kw = goodkw
@@ -439,6 +463,7 @@ class TLC(Talker):
 					self.ax_correlations[k].set_xlim(ppm*np.min(self.instrumental()[ok]), ppm*np.max(self.instrumental()[ok]))
 					self.ax_timeseries[k].set_ylim(np.min(self.externalvariables[k]), np.max(self.externalvariables[k]))
 
+		ok = (self.bad == 0).nonzero()
 		which = np.median(np.round((self.TM.smooth_unphased_tlc.bjd - self.TM.planet.t0.value)/self.TM.planet.period.value))
 		modeltime = self.TM.smooth_unphased_tlc.bjd - self.TM.planet.t0.value - which*self.TM.planet.period.value
 		assert(len(modeltime) == len(self.TM.model(self.TM.smooth_unphased_tlc)))
@@ -453,15 +478,19 @@ class TLC(Talker):
 
 		# plot histograms of the residuals
 		expectation = [0, ppm*np.mean(self.uncertainty)]
-		zachopy.oned.plothistogram(ppm*self.instrumental(), nbins=100, ax=self.ax_instrument_histogram,expectation =expectation , **kw)
-		zachopy.oned.plothistogram(ppm*self.residuals(), nbins=100, ax=self.ax_residuals_histogram, expectation =expectation , **kw)
+		zachopy.oned.plothistogram(ppm*self.instrumental()[ok], nbins=100, ax=self.ax_instrument_histogram,expectation =expectation , **kw)
+		zachopy.oned.plothistogram(ppm*self.residuals()[ok], nbins=100, ax=self.ax_residuals_histogram, expectation =expectation , **kw)
 
 
 		# plot binned RMS
-		zachopy.oned.plotbinnedrms(self.residuals()[self.bad == False], ax=self.ax_binnedrms, yunits=1e6,  **kw)
+		zachopy.oned.plotbinnedrms(self.residuals()[ok], ax=self.ax_binnedrms, yunits=1e6,  **kw)
 
 		# plot the ACF
-		zachopy.oned.plotautocorrelation(self.residuals()[self.bad == False], ax =self.ax_acf,  **kw)
+		zachopy.oned.plotautocorrelation(self.residuals()[ok], ax =self.ax_acf,  **kw)
+
+
+		# print text about the fit
+
 
 		self.line_correlations = {}
 		kw['alpha'] = 0.5
@@ -474,7 +503,7 @@ class TLC(Talker):
 		if self.noiseassumedforplotting is not None:
 			scale = self.noiseassumedforplotting*nsigma
 		else:
-			scale = nsigma*np.mean(self.uncertainty)
+			scale = nsigma*np.mean(self.uncertainty[ok])
 		ppm = 1e6
 		self.ax_residuals.set_ylim(-scale*ppm, scale*ppm)
 		self.ax_instrument.set_ylim(-scale*ppm, scale*ppm)
@@ -482,6 +511,7 @@ class TLC(Talker):
 		self.ax_residuals.set_xlim(np.min(time), np.max(time))
 		buffer = 0.0075
 		self.ax_corrected.set_ylim(1.0 - self.TM.planet.depth - buffer, 1.0 + buffer)
+		self.ax_raw.set_ylim(1.0 - self.TM.planet.depth - buffer*3, 1.0 + buffer*3)
 
 		plt.draw()
 		if directory is None:

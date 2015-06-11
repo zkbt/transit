@@ -27,6 +27,18 @@ class PDF(Talker):
 		if filename is not None:
 			self.load(filename)
 
+	def listParameters(self):
+		s = ''
+		for i in range(self.n):
+			p = self.parameters[i]
+			thisline = '{0} = {1}\n'.format(p.name, p.string())
+			if len(thisline) > 35:
+				thisline = thisline.replace('=', '=\n')
+			s += thisline
+		return s
+	def printParameters(self):
+		self.speak(self.listParameters())
+
 	def load(self, filename):
 		"""load the PDF from a file"""
 
@@ -41,7 +53,7 @@ class PDF(Talker):
 			self.parameters.append(Parameter(self.names[i], self.values[i]))
 
 		self.populateUncertainties()
-		
+
 		# record the fact that this has been initialized
 		self._initialized = True
 
