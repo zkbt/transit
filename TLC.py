@@ -1,76 +1,93 @@
-import numpy as np
-import matplotlib.pyplot as plt
+from imports import *
 from Planet import Planet
 from Star import Star
 from TM import TM
 from PDF import PDF
-import matplotlib.gridspec
-import astropy.io
-import pickle
-import zachopy.color
 ppm = 1e6
-from zachopy.Talker import Talker
 
 class TLC(Talker):
-	'''Transit Light Curve class, to store both light curve and auxiliary variables.'''
-	def __init__(self, bjd=None, flux=None, uncertainty=None, mearth=None, directory=None, left=None, right=None, name=None, remake=False, threshold=None, noiseassumedforplotting=None, night=None, **kwargs):
+	'''Transit Light Curve class,
+		to store both light curve and auxiliary variables.'''
 
+	def __init__(self, bjd=None, flux=None, uncertainty=None,
+						mearth=None,
+						directory=None,
+						left=None, right=None,
+						name=None,
+						remake=False,
+						night=None,
+						**kwargs):
+
+		# initialize the Talker object
 		Talker.__init__(self)
+
+		# define a dictionary of flags that can be used for bad data
+
 		self.flags = dict(outlier=1, saturation=2, custom=4)
-		# define wavelengths
+
+		# specify the left and right wavelengths of this bandpass
 		self.left = left
 		self.right = right
+
+		# specify a directory in which to store saved versions of this TLC,
+		# 	as well as other outputs (plots, etc...)
 		self.directory = directory
 
+		# if possible, try to load the light curve from its directory
+		#	otherwise, create it from raw input files
 		try:
 			assert(remake == False)
 			self.load(directory)
 		except:
+
 			# if possible, initialize from arrays
 			if bjd is not None and flux is not None:
 				self.fromArrays(bjd, flux, uncertainty, **kwargs)
-			# try to load from MEarth
-			if mearth is not None:
-				self.fromMEarth(mearth, night=night, threshold=threshold)
-				self.left = 6000.0
-				self.right = 7000.0
 
+			# next, try to load a MEarth file
+			if mearth is not None:
+				self.fromMEarth(mearth, night=night)
+				self.left = 7150.0
+				self.right = 10000.0
+
+		# make sure an array of "bad" values is defined
 		try:
 			self.bad
 		except:
 			self.bad = np.isfinite(self.flux) == False
 
+		# pick the central wavelength of this light curve's bandpass
 		if self.left is None or self.right is None:
 			self.wavelength = None
 		else:
 			self.wavelength = (self.left + self.right)/2.0
 
-
+		# assign a name to this lightcurve
 		self.name = name
 
-		if noiseassumedforplotting is None:
-			self.noiseassumedforplotting = np.mean(self.uncertainty)
-		else:
-			self.noiseassumedforplotting = noiseassumedforplotting
-
-
+		# assign the colors for this light curve
 		self.setupColors()
 
-	def setupColors(self):
+	def setupColors(self, style='eye'):
+		'''Method to set the line and point colots for this light curve.
+			style = 'eye': make colors as they would appear to the human eye
+			[add other options (e.g. specify a color specific color)]'''
+
 		# set up the appropriate colors to use
 		try:
 			self.colors
 		except:
 			self.colors = {}
-			try:
-				self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
-				self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
-			except:
-				self.colors['points'] = 'black'
-				self.colors['lines'] = 'gray'
+			if style='eye':
+				try:
+					self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
+					self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
+				except:
+					self.colors['points'] = 'black'
+					self.colors['lines'] = 'gray'
 
 
-	def fromMEarth(self, filename, night=None, threshold=None):
+	def fromMEarth(self, filename, night=None):
 		'''Populate a TLC from a MEarth file.'''
 		hdus = astropy.io.fits.open(filename)
 		data = hdus[1].data
@@ -87,8 +104,7 @@ class TLC(Talker):
 			ok = np.abs(bjd - night) < 0.5
 		else:
 			ok = bjd > 0
-		if threshold is not None:
-			ok *= uncertainty/flux < (np.median(uncertainty/flux)*3)
+
 		self.fromArrays(bjd[ok], flux[ok]/np.median(flux[ok]), uncertainty[ok]/np.median(flux[ok]))
 
 		# populate the external variables, both as a list and as individual entries
@@ -188,13 +204,13 @@ class TLC(Talker):
 			# set up the light curve plots
 			if everything:
 				# create two columns, to populate with lightcurves on left and diagnostics on right
-				gs_overarching = matplotlib.gridspec.GridSpec(1, 3, width_ratios=[1, 0.3, 1.0], wspace=0.25, left=0.09, right=0.98)
+				gs_overarching = plt.matplotlib.gridspec.GridSpec(1, 3, width_ratios=[1, 0.3, 1.0], wspace=0.25, left=0.09, right=0.98)
 
 				# create plots for light curves
-				gs_lightcurve = matplotlib.gridspec.GridSpecFromSubplotSpec(5, 2, hspace=0.05, wspace=0, width_ratios = [1,.2], height_ratios=[1,0.5,0.1,1,0.5], subplot_spec = gs_overarching[0])
+				gs_lightcurve = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(5, 2, hspace=0.05, wspace=0, width_ratios = [1,.2], height_ratios=[1,0.5,0.1,1,0.5], subplot_spec = gs_overarching[0])
 
 				# noise properties
-				gs_diagnostics = matplotlib.gridspec.GridSpecFromSubplotSpec(3,1, height_ratios = [3,1,1], hspace=0.3, subplot_spec = gs_overarching[1])
+				gs_diagnostics = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(3,1, height_ratios = [3,1,1], hspace=0.3, subplot_spec = gs_overarching[1])
 
 				# potentially correlated variables
 				self.to_correlate = []
@@ -203,10 +219,10 @@ class TLC(Talker):
 						if k in self.TM.instrument.__dict__.keys() and k != 'rescaling':
 							self.to_correlate.append(k.split('_tothe')[0])
 				ncor = np.int(np.ceil(np.sqrt(len(self.to_correlate))))
-				gs_external = matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
+				gs_external = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
 
 			else:
-				gs_lightcurve = matplotlib.gridspec.GridSpec(5, 1, hspace=0.05, wspace=0, height_ratios=[1,0.5,0.1,1,0.5])
+				gs_lightcurve = plt.matplotlib.gridspec.GridSpec(5, 1, hspace=0.05, wspace=0, height_ratios=[1,0.5,0.1,1,0.5])
 
 			# set up the light curve (and residual) panels (leaving a space between the uncorrected and the corrected
 			self.ax_raw = plt.subplot(gs_lightcurve[0,0])
@@ -294,7 +310,7 @@ class TLC(Talker):
 		except:
 
 			# set up the grid for plotting
-			gs_lightcurve = matplotlib.gridspec.GridSpec(2, 2, width_ratios=[2,1], wspace=0.0, hspace=0.25)
+			gs_lightcurve = plt.matplotlib.gridspec.GridSpec(2, 2, width_ratios=[2,1], wspace=0.0, hspace=0.25)
 
 			# set up the light curve (and residual) panels (leaving a space between the uncorrected and the corrected
 			self.ax_phased = plt.subplot(gs_lightcurve[0,0])
@@ -500,6 +516,10 @@ class TLC(Talker):
 		assert(np.std(ppm*justinstrument)>1)
 
 		nsigma = 5
+		if noiseassumedforplotting is None:
+			self.noiseassumedforplotting = np.mean(self.uncertainty)
+		else:
+			self.noiseassumedforplotting = noiseassumedforplotting
 		if self.noiseassumedforplotting is not None:
 			scale = self.noiseassumedforplotting*nsigma
 		else:
