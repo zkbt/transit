@@ -10,45 +10,41 @@ class TLC(Talker):
 		to store both light curve and auxiliary variables.'''
 
 	def __init__(self, bjd=None, flux=None, uncertainty=None,
-						mearth=None,
-						directory=None,
+						inputfilename=None, directory=None,
 						left=None, right=None,
 						name=None,
 						remake=False,
-						night=None,
+						color='slategray',
 						**kwargs):
 
 		# initialize the Talker object
 		Talker.__init__(self)
 
-		# define a dictionary of flags that can be used for bad data
+		self.speak('creating an empty TLC')
 
+		# define a dictionary of flags that can be used for bad data
 		self.flags = dict(outlier=1, saturation=2, custom=4)
 
 		# specify the left and right wavelengths of this bandpass
 		self.left = left
 		self.right = right
 
+		# specify the original filename
+		self.inputfilename = inputfilename
+
 		# specify a directory in which to store saved versions of this TLC,
 		# 	as well as other outputs (plots, etc...)
 		self.directory = directory
+		if self.directory is None:
+			try:
+				self.directory = '/'.join(self.inputfilename.replace('data/', 'fits/').split('/')[:-1]) + '/'
+				zachopy.utils.mkdir(self.directory)
+			except AttributeError:
+				pass
+		self.speak('assigning it the directory {0}'.format(self.directory))
 
-		# if possible, try to load the light curve from its directory
-		#	otherwise, create it from raw input files
-		try:
-			assert(remake == False)
-			self.load(directory)
-		except:
-
-			# if possible, initialize from arrays
-			if bjd is not None and flux is not None:
-				self.fromArrays(bjd, flux, uncertainty, **kwargs)
-
-			# next, try to load a MEarth file
-			if mearth is not None:
-				self.fromMEarth(mearth, night=night)
-				self.left = 7150.0
-				self.right = 10000.0
+		# initialize the TLC by filling it with data
+		self.initialize(bjd=bjd, flux=flux, uncertainty=uncertainty, remake=remake, **kwargs)
 
 		# make sure an array of "bad" values is defined
 		try:
@@ -66,11 +62,31 @@ class TLC(Talker):
 		self.name = name
 
 		# assign the colors for this light curve
-		self.setupColors()
+		self.setupColors(color=color)
 
-	def setupColors(self, style='eye'):
+	def initialize(self, bjd=None, flux=None, uncertainty=None,
+						remake=False,
+						**kwargs):
+		'''If possible, try to load the light curve from its directory
+			otherwise, create it from raw input file.'''
+
+		try:
+			assert(remake == False)
+			self.load(self.directory)
+			self.speak('initialized TLC from pre-saved file in {0}'.format(self.directory))
+		except IOError:
+			# if possible, initialize from arrays; if not, load from scratch
+			if bjd is not None and flux is not None:
+				self.fromArrays(bjd, flux, uncertainty, **kwargs)
+				self.speak('initialized TLC from {0}-element arrays'.format(self.n))
+			else:
+				self.fromFile(self.inputfilename)
+				self.speak('initialized TLC from {0}'.format(self.inputfilename))
+			self.save(self.directory)
+
+	def setupColors(self, color='eye', minimumuncertainty=0.001):
 		'''Method to set the line and point colots for this light curve.
-			style = 'eye': make colors as they would appear to the human eye
+			color = 'eye': make colors as they would appear to the human eye
 			[add other options (e.g. specify a color specific color)]'''
 
 		# set up the appropriate colors to use
@@ -78,54 +94,58 @@ class TLC(Talker):
 			self.colors
 		except:
 			self.colors = {}
-			if style='eye':
-				try:
-					self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
-					self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
-				except:
-					self.colors['points'] = 'black'
-					self.colors['lines'] = 'gray'
+			if color=='eye':
+				self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
+				self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
+			else:
+				self.colors['lines'] = color
+				r, g, b = zachopy.color.name2color(color.lower())
+				rgba = np.zeros((self.n, 4))
+				rgba[:,0] = r
+				rgba[:,1] = g
+				rgba[:,2] = b
+				weights = np.maximum((minimumuncertainty/self.uncertainty)**2, 1)
+				over = weights > 1
+				weights[over] = 1
+				rgba[:,3] = 0.5*weights
+				self.colors['points'] = rgba
+
+	def plot(self, model=None, alpha=1):
+		ok = self.bad == False
+		if model == None:
+			x = self.bjd[ok]
+		else:
+			x = model.planet.timefrommidtransit(self.bjd[ok])
+		colors = self.colors['points'][ok]
+		colors[:,3]*=alpha
+		plt.scatter(x, self.flux[ok], color=colors, edgecolor='none', s=50, linewidth=0)
 
 
-	def fromMEarth(self, filename, night=None):
-		'''Populate a TLC from a MEarth file.'''
-		hdus = astropy.io.fits.open(filename)
-		data = hdus[1].data
-		header = hdus[1].header
-		self.data, self.header = data, header
-		#print data.columns
-		i_target = (data['class'] == 9).nonzero()[0]
-		assert(len(i_target == 1))
-		i_target = i_target[0]
-		bjd = data['bjd'][i_target]
-		flux = 10**(-0.4*(data['flux'][i_target]))
-		uncertainty = (1-10**(-0.4*(data['fluxerr'][i_target])))*flux
+	def restrictToNight(self, night=None):
+		'''Trim to data from only a particular night.'''
+
+		# if a night has been selected, restrict to it
 		if night is not None:
 			ok = np.abs(bjd - night) < 0.5
 		else:
 			ok = bjd > 0
-
-		self.fromArrays(bjd[ok], flux[ok]/np.median(flux[ok]), uncertainty[ok]/np.median(flux[ok]))
-
-		# populate the external variables, both as a list and as individual entries
-		self.externalvariables = {}
+		self.trimTo(ok)
 
 
-		for key in ['tv', 'texp', 'off', 'rms', 'extc', 'see', 'ell', 'sky', 'nois', 'fang', 'iang'  ]:
-			self.externalvariables[key] = np.zeros(len(bjd))
+	def trimTo(self, ok):
+		'''Trim the TLC to data points where ok == True.'''
 
-			for i in range(len(bjd)):
-				self.externalvariables[key][i] = header['{0}{1:.0f}'.format(key,i+1)]
+		self.speak('trimming from ')
+		self.bjd
 
-			self.externalvariables[key] = self.externalvariables[key][ok]
 
-		for key in ['xlc','ylc','airmass','sky']:
-			value=data[key][i_target][ok]
-			if len(value) == len(self.bjd):
-				self.externalvariables[key] = value
+
+
+
 
 	def fromArrays(self, bjd, flux, uncertainty=None, **kwargs):
-		'''Populate a TLC from input arrays (used by transmission.py'''
+		'''Populate a TLC from input arrays (used by transmission.py)'''
+
 		# how many data points are in light curve?
 		self.n = len(bjd)
 
@@ -169,7 +189,10 @@ class TLC(Talker):
 					#for evkey in tosave[k].keys():
 						#self.speak( "          " + evkey)
 
-		np.save(directory + 'TLC.npy', tosave)
+		zachopy.utils.mkdir(directory)
+		filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
+
+		np.save(filename, tosave)
 		self.speak("saving light curve to {directory}, including all its external variables".format(directory=directory))
 
 	def load(self, directory):
@@ -349,7 +372,7 @@ class TLC(Talker):
 			dict[evkey] = np.interp(new_bjd, self.TLC.bjd, self.TLC.externalvariables[evkey])
 
 		# create the fake TLC
-		return TLC(left=self.left, right=self.right, **dict)
+		return TLC(left=self.left, right=self.right, directory=self.directory + 'fake/', **dict)
 
 	def LightcurvePlots(self):
 		'''A quick tool to plot what the light curve (and external variables) looks like.'''
@@ -434,6 +457,10 @@ class TLC(Talker):
 		self.speak('saving matrix of external variables to {0}'.format(filename))
 		plt.savefig(filename)
 
+	def setupSmooth(self):
+		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 100000))
+
+
 	def DiagnosticsPlots(self, noiseassumedforplotting=0.001, directory=None):
 		'''A quick tool to plot what the light curve (and external variables) looks like.'''
 
@@ -458,10 +485,10 @@ class TLC(Talker):
 				kw = badkw
 			if np.sum(ok) == 0:
 				continue
-			self.points_raw = self.ax_raw.plot(time[ok], self.flux[ok], **kw)[0]
-			self.points_corrected = self.ax_corrected.plot(time[ok], self.flux[ok]/self.TM.instrument_model()[ok], **kw)[0]
-			self.points_residuals = self.ax_residuals.plot(time[ok], ppm*self.residuals()[ok], **kw)[0]
-			self.points_instrument = self.ax_instrument.plot(time[ok], ppm*self.instrumental()[ok], **kw)[0]
+			self.points_raw = self.ax_raw.scatter(time[ok], self.flux[ok], **kw)[0]
+			self.points_corrected = self.ax_corrected.plot(scatter[ok], self.flux[ok]/self.TM.instrument_model()[ok], **kw)[0]
+			self.points_residuals = self.ax_residuals.plot(scatter[ok], ppm*self.residuals()[ok], **kw)[0]
+			self.points_instrument = self.ax_instrument.plot(scatter[ok], ppm*self.instrumental()[ok], **kw)[0]
 			self.points_correlations = {}
 			kw['markersize'] = 2
 			kw['alpha'] *= 0.5
@@ -471,8 +498,8 @@ class TLC(Talker):
 
 				# plot the external variables
 				x = self.externalvariables[k]
-				self.ax_correlations[k].plot(ppm*(self.residualsexceptfor(k)[ok]), x[ok], **kw)[0]
-				self.ax_timeseries[k].plot( time[ok], self.externalvariables[k][ok], **kw)
+				self.ax_correlations[k].scatter(ppm*(self.residualsexceptfor(k)[ok]), x[ok], **kw)[0]
+				self.ax_timeseries[k].scatter( time[ok], self.externalvariables[k][ok], **kw)
 
 				# set limits of plot windows
 				if good:

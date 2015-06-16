@@ -211,16 +211,19 @@ class TM(Talker):
 			parinfolist.append(parameter.parinfo)
 		return list, parinfolist
 
-	def plotPhased(self):
+	def plotPhased(self, **kw):
 		'''Plot the light curve model, phased with the planetary period.'''
 		t_phased = self.planet.timefrommidtransit(self.smooth_phased_tlc.bjd)
 		assert(len(t_phased) == len(self.model(self.smooth_phased_tlc)))
-		try:
-			for phased in [self.line_phased[0], self.line_phased_zoom[0]]:
-				phased.set_data(t_phased, self.model(self.smooth_phased_tlc))
-		except:
-			self.line_phased = self.TLC.ax_phased.plot(t_phased,self.model(self.smooth_phased_tlc), **self.kw)
-			self.line_phased_zoom = self.TLC.ax_phased_zoom.plot(t_phased, self.model(self.smooth_phased_tlc), **self.kw)
+
+		plt.plot(t_phased, self.model(self.smooth_phased_tlc), **kw)
+		'''KLUDGED COMMENTED OUT!'''
+		#try:
+		#	for phased in [self.line_phased[0], self.line_phased_zoom[0]]:
+		#		phased.set_data(t_phased, self.model(self.smooth_phased_tlc))
+		#except:
+		#	self.line_phased = self.TLC.ax_phased.plot(t_phased,self.model(self.smooth_phased_tlc), **self.kw)
+		#	self.line_phased_zoom = self.TLC.ax_phased_zoom.plot(t_phased, self.model(self.smooth_phased_tlc), **self.kw)'''
 
 	def plotUnphased(self):
 		'''Plot the light curve model, linear in time.'''
