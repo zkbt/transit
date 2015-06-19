@@ -22,6 +22,7 @@ class TM(Talker):
 	def __init__(self, planet=None, star=None, instrument=None, directory=None,depthassumedforplotting=None, **kwargs):
 		'''Initialize the parameters of the model.'''
 
+		# setup the talker
 		Talker.__init__(self)
 
 		# create an empty array of parameters for eb
@@ -36,7 +37,7 @@ class TM(Talker):
 		if directory is not None and planet is None:
 			self.load(directory)
 		else:
-			# define the subsets of the parameters
+			# define the subsets of the parameters, maybe by falling to defaults
 			if planet is None:
 				planet = Planet()
 			if star is None:
@@ -46,7 +47,6 @@ class TM(Talker):
 			self.planet = planet
 			self.star = star
 			self.instrument = instrument
-
 
 
 	def load(self, directory):
@@ -140,25 +140,38 @@ class TM(Talker):
 		'''Model of the planetary transit.'''
 		self.set_ebparams()
 
+		# by default, will use the linked TLC, but could use a custom TLC
+		# 	 (e.g. a high-resolution one, for plotting)
 		if tlc is None:
 			tlc = self.TLC
 
+		# if called with a "t=" keyword set, then will use those custom times
 		if t is None:
 			t = tlc.bjd
+
+		# make sure the types are okay for Jonathan's inputs
 		typ = np.empty_like(t, dtype=np.uint8)
 		typ.fill(eb.OBS_MAG)
+
+		# work in relative flux (rather than magnitudes) -- why did I do this?
 		return 10**(-0.4*eb.model(self.ebparams, t, typ))
 
 	##@profile
 	def instrument_model(self, tlc=None):
 		'''Model of the instrument.'''
+
+		# by default, use the real TLC
 		if tlc is None:
 			tlc = self.TLC
+
+		# use the instrument to spit out a corrective model
 		return self.instrument.model(tlc)
 
 	##@profile
 	def model(self, tlc=None):
 		'''Model including both instrument and planetary transit.'''
+
+		# create the complete model, for either real or fake light curve
 		return self.planet_model(tlc=tlc)*self.instrument_model(tlc=tlc)
 
 	@property
@@ -216,7 +229,7 @@ class TM(Talker):
 		t_phased = self.planet.timefrommidtransit(self.smooth_phased_tlc.bjd)
 		assert(len(t_phased) == len(self.model(self.smooth_phased_tlc)))
 
-		plt.plot(t_phased, self.model(self.smooth_phased_tlc), **kw)
+		plt.plot(t_phased, self.planet_model(self.smooth_phased_tlc), **kw)
 		'''KLUDGED COMMENTED OUT!'''
 		#try:
 		#	for phased in [self.line_phased[0], self.line_phased_zoom[0]]:
@@ -351,3 +364,6 @@ class TM(Talker):
 	def slowfit(self, **kwargs):
 		self.fitter = MCMC(self, **kwargs)
 		self.fitter.fit(**kwargs)
+
+	def __repr__(self):
+		return self.TLC.__repr__().replace('TLC', 'TM')

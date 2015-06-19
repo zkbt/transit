@@ -70,7 +70,7 @@ class Parameter(object):
 		self.independent = False
 
 	def __repr__(self):
-		return "<Parameter {name}|{value}\pm{uncertainty}>".format(**self.__dict__)
+		return "<{name}|{value}\pm{uncertainty}>".format(**self.__dict__)
 
 	@property
 	def parinfo(self):

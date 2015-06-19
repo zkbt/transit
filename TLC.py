@@ -15,12 +15,16 @@ class TLC(Talker):
 						name=None,
 						remake=False,
 						color='slategray',
+						isfake=False,
+						telescope=None, epoch=None,
 						**kwargs):
 
 		# initialize the Talker object
 		Talker.__init__(self)
-
+		self.color = color
 		self.speak('creating an empty TLC')
+
+		self.rescaling = 1.0
 
 		# define a dictionary of flags that can be used for bad data
 		self.flags = dict(outlier=1, saturation=2, custom=4)
@@ -28,6 +32,14 @@ class TLC(Talker):
 		# specify the left and right wavelengths of this bandpass
 		self.left = left
 		self.right = right
+		print '!!!!!!!!', self.left, self.right
+		# keep track of the telescope (and epoch)
+		self.telescope=telescope
+		self.epoch=epoch
+
+		# is this a real light curve, or a fake one?
+		#  (e.g., one at high resolution for plotting)
+		self.isfake = isfake
 
 		# specify the original filename
 		self.inputfilename = inputfilename
@@ -59,6 +71,15 @@ class TLC(Talker):
 			self.wavelength = (self.left + self.right)/2.0
 
 		# assign a name to this lightcurve
+		if name is None:
+			if self.telescope is None:
+				name = '???'
+			else:
+				name = self.telescope
+			if self.epoch is None:
+				pass
+			else:
+				name += ',E={0}'.format(self.epoch)
 		self.name = name
 
 		# assign the colors for this light curve
@@ -74,7 +95,7 @@ class TLC(Talker):
 			assert(remake == False)
 			self.load(self.directory)
 			self.speak('initialized TLC from pre-saved file in {0}'.format(self.directory))
-		except IOError:
+		except:
 			# if possible, initialize from arrays; if not, load from scratch
 			if bjd is not None and flux is not None:
 				self.fromArrays(bjd, flux, uncertainty, **kwargs)
@@ -82,7 +103,9 @@ class TLC(Talker):
 			else:
 				self.fromFile(self.inputfilename)
 				self.speak('initialized TLC from {0}'.format(self.inputfilename))
-			self.save(self.directory)
+
+			if self.isfake == False:
+				self.save(self.directory)
 
 	def setupColors(self, color='eye', minimumuncertainty=0.001):
 		'''Method to set the line and point colots for this light curve.
@@ -90,36 +113,43 @@ class TLC(Talker):
 			[add other options (e.g. specify a color specific color)]'''
 
 		# set up the appropriate colors to use
-		try:
-			self.colors
-		except:
+		#try:
+		#	self.colors
+		#except:
+
+		if True:
 			self.colors = {}
-			if color=='eye':
-				self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
-				self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
-			else:
+			#if color=='eye':
+			#	self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
+			#	self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
+			#else:
+			if True:
 				self.colors['lines'] = color
 				r, g, b = zachopy.color.name2color(color.lower())
 				rgba = np.zeros((self.n, 4))
 				rgba[:,0] = r
 				rgba[:,1] = g
 				rgba[:,2] = b
-				weights = np.maximum((minimumuncertainty/self.uncertainty)**2, 1)
+				weights = np.minimum((minimumuncertainty/self.uncertainty/self.rescaling)**2, 1)
 				over = weights > 1
 				weights[over] = 1
 				rgba[:,3] = 0.5*weights
 				self.colors['points'] = rgba
 
+	@property
+	def ok(self):
+		return self.bad == False
+
 	def plot(self, model=None, alpha=1):
 		ok = self.bad == False
 		if model == None:
-			x = self.bjd[ok]
+			x = self.bjd
 		else:
-			x = model.planet.timefrommidtransit(self.bjd[ok])
-		colors = self.colors['points'][ok]
+			x = model.planet.timefrommidtransit(self.bjd)
+		colors = self.colors['points']
 		colors[:,3]*=alpha
-		plt.scatter(x, self.flux[ok], color=colors, edgecolor='none', s=50, linewidth=0)
-
+		plt.scatter(x[ok], self.corrected()[ok], color=colors[ok], edgecolor='none', s=50, linewidth=0)
+		plt.scatter(x[self.bad], self.corrected()[self.bad], color=self.color, marker='x', alpha=0.2, s=50)
 
 	def restrictToNight(self, night=None):
 		'''Trim to data from only a particular night.'''
@@ -372,7 +402,7 @@ class TLC(Talker):
 			dict[evkey] = np.interp(new_bjd, self.TLC.bjd, self.TLC.externalvariables[evkey])
 
 		# create the fake TLC
-		return TLC(left=self.left, right=self.right, directory=self.directory + 'fake/', **dict)
+		return TLC(left=self.left, right=self.right, directory=self.directory + 'fake/', isfake=True, **dict)
 
 	def LightcurvePlots(self):
 		'''A quick tool to plot what the light curve (and external variables) looks like.'''
@@ -458,7 +488,7 @@ class TLC(Talker):
 		plt.savefig(filename)
 
 	def setupSmooth(self):
-		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 100000))
+		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 10000))
 
 
 	def DiagnosticsPlots(self, noiseassumedforplotting=0.001, directory=None):
@@ -573,6 +603,40 @@ class TLC(Talker):
 		self.TM.TLC = self
 		self.TLC = self
 		self.TM.TM = self.TM
+
+	def splitIntoEpochs(self, planet=None, buffer=5, thresholdInTransit=1, thresholdOutOfTransit=1):
+		assert(planet is not None)
+
+		inTransit = np.abs(planet.timefrommidtransit(self.bjd)) < planet.duration/2.0
+		epochNumbers = planet.thisepoch(self.bjd)
+		uniqueEpochNumbers = np.unique(epochNumbers)
+
+		newTLCs = []
+		for u in uniqueEpochNumbers:
+			inThisEpoch = epochNumbers == u
+			nInThisTransit = np.sum(inTransit*inThisEpoch)
+			nearThisTransit = inThisEpoch*(np.abs(planet.timefrommidtransit(self.bjd)) < (0.5 + buffer)*planet.duration)
+
+			nNearThisTransit = np.sum(nearThisTransit)
+			if (nInThisTransit > thresholdInTransit)&(nNearThisTransit > (thresholdOutOfTransit+thresholdOutOfTransit)):
+				self.speak('creating a new TLC at epoch {0} with {1} data points'.format(u, nNearThisTransit))
+				ok = nearThisTransit
+				ev = {}
+				for k in self.externalvariables.keys():
+					ev[k] = self.externalvariables[k][ok]
+				print '$$$$$$', self.left, self.right
+				newTLC = TLC(self.bjd[ok], self.flux[ok], self.uncertainty[ok],
+								left=self.left, right=self.right,
+								directory = self.directory + '{0:.0f}/'.format(u), color=self.color,
+								epoch=u, telescope=self.telescope, name=None, remake=True, **ev)
+				print '=======',newTLC.left, newTLC.right
+				newTLCs.append(newTLC)
+			else:
+				self.speak("there aren't enough data on epoch {0} to be worth while".format(u))
+		return newTLCs
+
+	def __repr__(self):
+		return '<TLC|{name}|N={n} good data>'.format(name=self.name, telescope=self.telescope, epoch=self.epoch, n=np.sum(self.bad == False))
 
 def demo():
 	planet = Planet(J=0.00, rp_over_rs=0.1, rsum_over_a=1.0/20.0, cosi=0.000, q=0.000, period=1.58, t0=2456000.0, esinw=0.0, ecosw=0.0)

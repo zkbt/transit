@@ -35,7 +35,10 @@ class Instrument(Parameters):
 
 
 	def normalize(self, x):
-		return (x - np.mean(x))/np.std(x)
+		s = np.std(x)
+		if s == 0:
+			s = np.mean(x)
+		return (x - np.mean(x))/s
 
 	#@profile
 	def model(self, tlc):
@@ -80,7 +83,7 @@ class Instrument(Parameters):
 				power = np.int(chunks[-1])
 
 				# add the template (to the power) into the model
-				if parameter.value != 0:
+				if parameter.value != 0.0:
 					m += parameter.value*ev**power
 		assert(np.isfinite(m).all())
 		return m

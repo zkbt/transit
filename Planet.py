@@ -9,7 +9,7 @@ class Planet(Parameters):
 		# define defaults
 		Parameters.__init__(self, 	J=0.0, \
 									k=0.1, \
-									rs_over_a=1.0/10.0, \
+									rsovera=1.0/10.0, \
 									b=0.0, \
 									q=0.0, \
 									period=10.0, \
@@ -58,14 +58,14 @@ class Planet(Parameters):
 
 	@property
 	def a_over_rs(self):
-		return 1.0/self.rs_over_a.value
+		return 1.0/self.rsovera.value
 
 	@property
 	def rsum_over_a(self):
 		#by definition of k = rp/rs
 		k = self.k.value
-		rs_over_a = self.rs_over_a.value
-		return (1.0 + k)*rs_over_a
+		rsovera = self.rsovera.value
+		return (1.0 + k)*rsovera
 
 	@property
 	def e(self):
@@ -75,10 +75,10 @@ class Planet(Parameters):
 	def cosi(self):
 		# from Winn (2010)
 		b = self.b.value
-		rs_over_a = self.rs_over_a.value
+		rsovera = self.rsovera.value
 		e = self.e
 		esinw = self.esinw.value
-		return b*rs_over_a*(1.0 + esinw)/(1-e*e)
+		return b*rsovera*(1.0 + esinw)/(1-e*e)
 
 	@property
 	def sini(self):
@@ -93,6 +93,9 @@ class Planet(Parameters):
 
 	def contacts(self):
 		return eb.phicont(self.esinw.value, self.ecosw.value, self.cosi, self.rsum_over_a)
+
+	def thisepoch(self, bjd):
+		return np.round((bjd - self.t0.value)/self.period.value).astype(np.int)
 
 	def thismidtransit(self, bjd):
 		return np.round((bjd - self.t0.value)/self.period.value)*self.period.value + self.t0.value
