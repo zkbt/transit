@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec
 from transit.Parameter import Parameter
 from zachopy.Talker import Talker
+import copy
 
 # which attributes can be saved?
 saveable = ['names', 'values', 'covariance', 'samples']
@@ -28,16 +29,18 @@ class PDF(Talker):
 			self.load(filename)
 
 	def listParameters(self):
-		s = ''
+		s = []
 		for i in range(self.n):
 			p = self.parameters[i]
 			thisline = '{0} = {1}\n'.format(p.name, p.string())
-			if len(thisline) > 35:
-				thisline = thisline.replace('=', '=\n')
-			s += thisline
+			#if len(thisline) > 35:
+			#	thisline = thisline.replace('=', '=\n')
+			s.append(thisline)
 		return s
+
 	def printParameters(self):
-		self.speak(self.listParameters())
+		for p in self.listParameters():
+			self.speak(p)
 
 	def load(self, filename):
 		"""load the PDF from a file"""
@@ -304,7 +307,7 @@ class Sampled(PDF):
 
 
 class MVG(PDF):
-	def __init__(self, parameters=None, covariance=None, **kwargs):
+	def __init__(self, names=None, parameters=None, covariance=None, **kwargs):
 		"""initialize a PDF from a list of parameter objects and a covariance matrix"""
 		self.color = 'SeaGreen'
 		PDF.__init__(self, **kwargs)
@@ -313,7 +316,12 @@ class MVG(PDF):
 
 		# by default, there are no samples (can make some if we need them)
 		self.samples = None
-		self.parameters = parameters
+		self.parameters = copy.deepcopy(parameters)
+		if names is not None:
+			assert(len(names) == len(parameters))
+			for i in range(len(names)):
+				self.parameters[i].name = names[i]
+
 		self.names = [p.name for p in self.parameters]
 		self.values = [p.value for p in self.parameters]
 		self.covariance = covariance

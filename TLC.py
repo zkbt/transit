@@ -169,8 +169,9 @@ class TLC(Talker):
 		self.bjd
 
 
-
-
+	def chisq(self):
+		ok = self.bad == False
+		return np.sum((self.residuals()/self.uncertainty)[ok]**2)
 
 
 	def fromArrays(self, bjd, flux, uncertainty=None, **kwargs):

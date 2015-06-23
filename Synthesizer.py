@@ -9,12 +9,14 @@ import transit.PDF as PDF
 
 
 def makeCode(d):
-    return '{name}_{telescope}_{epoch}'.format(**d)
-
+    # convert a parameter dictionary into a string label
+    return '{name}@{telescope}@{epoch}'.format(**d)
 
 
 class Synthesizer(Talker):
-    def __init__(self, tlcs, **kwargs):
+    '''Combine multiple TLCs (and maybe RVCs) together, a fit them simultaneously.'''
+
+    def __init__(self, tlcs, rvcs=[], **kwargs):
         '''Synthesizes a list of transit light curves (and their models),
             allowing them to be fit jointly.'''
 
@@ -24,6 +26,7 @@ class Synthesizer(Talker):
         # define the TLCs and the TMs, in the same order
         self.tlcs = tlcs
         self.tms = [tlc.TM for tlc in self.tlcs]
+        self.rvcs = rvcs
         self.findParameters()
 
     @property
@@ -33,6 +36,8 @@ class Synthesizer(Talker):
         for tlc in self.tlcs:
             tot += len(tlc.bjd)
         return tot
+
+
 
     @property
     def m(self):
@@ -221,21 +226,81 @@ class Synthesizer(Talker):
         # mpfit wants a list with the first element containing a status code
         return [status,np.array(combined_deviates)]
 
+    ##@profile
+    def lnprob(self, p):
+        """Return the log posterior, calculated from the deviates function (which may have included some conjugate Gaussian priors.)"""
+
+
+        chisq = np.sum(self.deviates(p)[-1]**2)/2.0
+        #N = np.sum(self.TLC.bad == 0)
+
+        # sum the deviates into a chisq-like thing
+        #lnlikelihood = -N * np.log(self.instrument.rescaling.value) - chisq/self.instrument.rescaling.value**2
+
+        lnlikelihood = - chisq#/self.instrument.rescaling.value**2
+
+        # don't let infinitely bad likelihoods break code
+        if np.isfinite(lnlikelihood) == False:
+            lnlikelihood = -1e9
+
+        # initialize an empty constraint, which could freak out if there's something bad about this fit
+        constraints = 0.0
+
+        # loop over the parameters
+        for parameter in self.parameters:
+
+            p = parameter['parameter'][0]
+            # if a parameter is outside its allowed range, then make the constraint very strong!
+            inside = (p.value < p.limits[1]) & (p.value > p.limits[0])
+            if inside == False:
+                constraints -= 1e6
+
+        # return the constrained likelihood
+        return lnlikelihood + constraints
+
+    @property
+    def label(self):
+        telescopes = np.unique([tlc.telescope for tlc in self.tlcs])
+        epochs = np.unique([tlc.epoch for tlc in self.tlcs])
+
+        return '{0}tlcs{1}telescopes{2}epochs{3}rvcs'.format(
+                    len(self.tlcs),
+                    len(telescopes),
+                    len(epochs),
+                    len(self.rvcs))
 
 class Fit(Synthesizer):
-    def __init__(self, tlcs, **kwargs):
+    def __init__(self, tlcs, directory=None, **kwargs):
         Synthesizer.__init__(self, tlcs, **kwargs)
+
+        if directory == None:
+            base = 'synthesized/'
+            zachopy.utils.mkdir(base)
+            directory = base + self.label + '/'
+        self.directory = directory
+        zachopy.utils.mkdir(self.directory)
 
     def save(self):
         #Save this fit, so it be reloaded quickly next time.
         zachopy.utils.mkdir(self.directory)
+
+        # save the PDF, which contains all the information about the fit
         self.speak('saving LM fit to {0}'.format(self.directory))
         self.speak('  the PDF')
         self.pdf.save(self.directory + 'pdf.npy')
-        self.speak('  the fitting notes')
-        np.save(self.directory + 'fitting_notes.npy', self.notes)
-        self.speak('  the best-fit model')
-        self.model.save(self.directory)
+
+        # save a list dictionaries saying how the light curve has been modified
+        modifications = []
+        for tlc in self.tlcs:
+            print tlc
+            this = dict(name=tlc.name,
+                        rescaling=tlc.rescaling,
+                        chisq=tlc.chisq(),
+                        ok=tlc.bad == False)
+            modifications.append(this)
+        filename = self.directory + 'modifications.npy'
+        np.save(filename, modifications)
+        self.speak('saved modifications to {0}'.format(filename))
 
     def load(self):
         #Save this fit, so it be reloaded quickly next time.
@@ -243,22 +308,77 @@ class Fit(Synthesizer):
         #self.speak('  the PDF')
         self.pdf = PDF.load(self.directory + 'pdf.npy')
         #self.speak('  the fitting notes')
-        self.notes = np.load(self.directory + 'fitting_notes.npy')[()]
-        #self.speak('  the best-fit model')
-        self.model.load(self.directory)
+
+        # pick up the covariance matrix
+        self.covariance = self.pdf.covariance
+        for i in range(self.m):
+            match = np.array(self.pdf.names) == self.parameters[i]['code']
+            for p in self.parameters[i]['parameter']:
+                loaded = np.array(self.pdf.parameters)[match]
+                assert(len(loaded) == 1)
+                loaded = loaded[0]
+                p.value = loaded.value
+                p.uncertainty = loaded.uncertainty
+                #self.speak('assigned {0} to {1}'.format(loaded, self.parameters[i]['code']))
+                #self.speak('!!!!!!!!!!!!!!!!')
+
+        # incorporate all modifications that were made to the light curves
+        filename = self.directory + 'modifications.npy'
+        modifications = np.load(filename)
+        self.speak('loaded TLC modifications from {0}'.format(filename))
+        assert(len(modifications) == len(self.tlcs))
+
+        for i in range(len(self.tlcs)):
+            this = modifications[i]
+            tlc = self.tlcs[i]
+
+            assert(tlc.name == this['name'])
+            tlc.rescaling = this['rescaling']
+            tlc.bad = this['ok'] == False
+            #assert(tlc.chisq() == this['chisq'])
+
+        self.speak('applied the outlier clipping and rescaling')
 
 
+    def setRescaling(self):
+        # after a fit has been performed (and applied!), rescale all light curves to have a chisq of 1
+
+        # calculate a chisq rescaling for each tlc
+        for tlc in self.tlcs:
+
+            # select only the good points
+            ok = tlc.ok
+
+            # calculate the raw chisq of this individual light curve
+            chisq = tlc.chisq()
+            dof = len(ok) - self.m*(0.0 + len(ok))/self.n
+            reduced_chisq = chisq/dof
+            self.speak('{0} has a reduced chisq of {1} ({2} dof)'.format(tlc.name, chisq, dof))
+
+
+            tlc.rescaling = np.maximum(np.sqrt(reduced_chisq), 1)
+            self.speak('rescaling original errors by {0} for next fit'.format(tlc.rescaling))
 
 
 class LM(Fit):
-    def __init__(self, tlcs, **kwargs):
+    def __init__(self, tlcs, label='.', **kwargs):
         Fit.__init__(self, tlcs, **kwargs)
+        self.directory = label + '/'
+        zachopy.utils.mkdir(self.directory)
 
-    def fit(self, plot=False, quiet=False, firstpass=True, remake=False, **kwargs):
+    def fit(self, plot=False, quiet=False, firstpass=True, secondpass=False, remake=False, **kwargs):
         '''Use LM (mpfit) to find the maximum probability parameters, and a covariance matrix.'''
+
+        try:
+            assert(remake == False)
+            self.load()
+            return
+        except (AssertionError,IOError):
+            self.speak('could not load this fit, making it from scratch!')
 
         self.speak('performing a fast LM fit')
 
+        # pull the parameter array out of the list of dictionaries
         p0, parinfo = self.toArray()
 
         # perform the LM fit, to get best fit parameters and covariance matrix
@@ -268,35 +388,36 @@ class LM(Fit):
         # set the parameters to their fitted values
         self.fromArray(self.mpfitted.params)
 
-        # calculate a chisq rescaling for each tlc
-        for tlc in self.tlcs:
+        # on the first pass, reject outliers and rescale the errors (roughly, to set relative weight of datasets)
+        if firstpass:
 
-            # select only the good points
-            ok = tlc.ok
+            # first, clip the outliers (so rescaling will be more meaningful)
+            for tlc in self.tlcs:
 
-            chisq = np.sum((tlc.residuals()/tlc.uncertainty)[ok]**2)
-            dof = len(ok) - self.m*(0.0 + len(ok))/self.n
-            reduced_chisq = chisq/dof
+                # select only the good points
+                ok = tlc.ok
 
-            self.speak('{0} has a reduced chisq of {1} ({2} dof)'.format(tlc.name, chisq, dof))
-
-
-            if firstpass:
-
-                tlc.rescaling = np.maximum(np.sqrt(reduced_chisq), 1)
-                self.speak('rescaling errors by {0} for next fit'.format(tlc.rescaling))
-                # SHOULD PROBABLY SPLIT OUTLIER AND RESCALING TO SEPARATE STEPS
-
-                # where are the residuals beyond 4 sigma?
+                # where are the residuals beyond 3 sigma?
                 outlierthreshold = 3.0
                 r = tlc.residuals()[ok]
                 outlier = (np.abs(r) > outlierthreshold*1.48*zachopy.oned.mad(r))
                 tlc.bad[ok] = tlc.bad[ok] | (tlc.flags['outlier']*outlier)
                 self.speak("identified {0} new points as bad; refitting without them".format(np.sum(outlier)))
 
-        if firstpass:
+            # rescaling the uncertainties
+            self.setRescaling()
+
             # refit, after the outliers have been rejected
-            self.fit(plot=plot, quiet=quiet, firstpass=False, **kwargs)
+            self.fit(plot=plot, remake=remake, quiet=quiet, firstpass=False, secondpass=True, **kwargs)
+            return
+
+        # on second pass, simply reset the rescalings, now that one fit has been done with ~correct weights
+        if secondpass:
+            # rescaling the uncertainties
+            self.setRescaling()
+
+            # refit, after the outliers have been rejected
+            self.fit(remake=remake, plot=plot, quiet=quiet, firstpass=False, secondpass=False, **kwargs)
             return
 
         # store the covariance matrix of the fit, and the 1D uncertainties on the parameters
@@ -306,22 +427,31 @@ class LM(Fit):
                 p.uncertainty = np.sqrt(self.covariance[i,i])
 
         # pull out the parameters that actually varied and create a PDF object out of them
-        interesting = (self.covariance[range(self.m), range(self.m)] > 0).nonzero()[0]
+        # interesting = (self.covariance[range(self.m), range(self.m)] > 0).nonzero()[0]
+
+        # include all parameters in the covariance matrix, even those with 0 uncertainty
+        interesting = np.arange(self.m)
 
         # create a PDF structure out of this covariance matrix
-        self.pdf = PDF.MVG(parameters=np.array([p['parameter'][0] for p in np.array(self.parameters)[interesting]]),
-            covariance=self.covariance[interesting,:][:,interesting])
+        self.pdf = PDF.MVG(
+                    names=np.array([p['code'] for p in self.parameters]),
+                    parameters=np.array([p['parameter'][0] for p in np.array(self.parameters)[interesting]]),
+                    covariance=self.covariance[interesting,:][:,interesting])
+
+        # print the results
         self.pdf.printParameters()
 
-            #self.save()
-"""
+        self.save()
+
 
 class MCMC(Fit):
     def __init__(self, model, **kwargs):
         Fit.__init__(self, model)
-        self.directory = self.model.directory + 'mcmc/'
+        self.directory = self.directory + 'mcmc/'
+        zachopy.utils.mkdir(self.directory)
 
-    def fit(self, nburnin=500, ninference=500, nwalkers=100,
+    def fit(self,
+        nburnin=500, ninference=500, nwalkers=100,
         broad=True, ldpriors=True,
         plot=True, interactive=False, remake=False, **kwargs):
         '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
@@ -330,93 +460,82 @@ class MCMC(Fit):
         try:
             assert(remake==False)
             self.load()
+            return
         except:
+            self.speak('could not load this MCMC fit, remaking it from scratch')
 
+        # create a LM fit to initialize the outlier rejection and rescaling
+        self.lm = LM(self.tlcs)
+        # set LM fit's (possibly linked) parameters to be same as this one
+        self.lm.parameters = self.parameters
+        # run (or load) the fit
+        self.lm.fit()
 
-            self.model.instrument.rescaling.float(value=1.0,limits=[0.5, 2.0])
+        # pull the parameter array out of the list of dictionaries
+        p0, parinfo = self.toArray()
+        nparameters = len(p0)
 
-            self.model.defineParameterList()
-            # populate an array with the parameters that are floating
-            self.findFloating()
+        # setup the initial walker positions
+        self.speak('initializing {nwalkers} for each of the {nparameters}'.format(**locals()))
+        initialwalkers = np.zeros((nwalkers, nparameters))
 
-            # apply the limb darkening priors, if required
-            if ldpriors:
-                self.model.applyLDpriors()
+        # loop over the parameters
+        for i in range(nparameters):
+            parameter = self.parameters[i]['parameter'][0]
+            initialwalkers[:,i] = np.random.uniform(parameter.limits[0], parameter.limits[1], nwalkers)
+            self.speak('  {parameter.name} picked from uniform distribution spanning {parameter.limits}'.format(**locals()))
 
-            # pull out the parameters into an array for mpfit
-            p0, parinfo = self.model.toArray()
-            nparameters = len(self.floating)
+        # set up the emcee sampler
+        self.sampler = emcee.EnsembleSampler(nwalkers, nparameters, self.lnprob)
+        self.names = [p['code'] for p in self.parameters]
 
-            # setup the initial walker positions
-            self.speak('initializing {nwalkers} for each of the {nparameters}'.format(**locals()))
-            initialwalkers = np.zeros((nwalkers, nparameters))
+        # add names to the sampler (for plotting progress, if desired)
+        self.sampler.addLabels(self.names)
 
-            # loop over the parameters
-            for i in range(nparameters):
-                parameter = self.model.parameters[i]
-                initialwalkers[:,i] = np.random.uniform(parameter.limits[0], parameter.limits[1], nwalkers)
-                self.speak('  {parameter.name} picked from uniform distribution spanning {parameter.limits}'.format(**locals()))
+        # run a burn in step, and then reset
+        burnt = False
+        count = 0
+        pos = initialwalkers
+        while burnt == False:
+            self.speak("running {0} burn-in steps, with {1} walkers.".format(nburnin, nwalkers))
+            pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin, updates=0.001)
 
-            # set up the emcee sampler
-            self.sampler = emcee.EnsembleSampler(nwalkers, nparameters, self.model.lnprob)
-            self.names = [p.name for p in self.model.parameters]
+            if interactive:
+                self.sampler.HistoryPlot([count, count + nburnin])
 
-            # add names to the sampler (for plotting progress, if desired)
-            self.sampler.addLabels(self.names)
-
-            # run a burn in step, and then reset
-            burnt = False
-            count = 0
-            pos = initialwalkers
-            while burnt == False:
-                self.speak("running {0} burn-in steps, with {1} walkers.".format(nburnin, nwalkers))
-                pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin)
-
-                if plot:
-                    self.sampler.HistoryPlot([count, count + nburnin])
-
-                samples = {}
-                for i in range(nparameters):
-                    samples[self.floating[i]] = self.sampler.flatchain[:,i]
-
-                if interactive:
-                    answer = self.input('Do you think we have burned in?')
-                    if 'y' in answer:
-                        burnt = True
-                else:
+            if interactive:
+                answer = self.input('Do you think we have burned in?')
+                if 'y' in answer:
                     burnt = True
+            else:
+                burnt = True
 
-                count += nburnin
+            count += nburnin
 
-            # after the burn-in, reset the chain
-            self.sampler.reset()
+        # after the burn-in, reset the chain
+        self.sampler.reset()
 
-            # loop until satisfied with the inference samples
-            self.speak('running for inference, using {0} steps and {1} walkers'.format(ninference, nwalkers))
+        # loop until satisfied with the inference samples
+        self.speak('running for inference, using {0} steps and {1} walkers'.format(ninference, nwalkers))
 
-            # start with the last set of walker positions from the burn in and run for realsies
-            self.sampler.run_mcmc_with_progress(pos, ninference)
+        # start with the last set of walker positions from the burn in and run for realsies
+        self.sampler.run_mcmc_with_progress(pos, ninference)
 
-            # trim the chain to the okay values (should this be necessary?)
-            ok = self.sampler.flatlnprobability > (np.max(self.sampler.flatlnprobability) - 100)
-            samples = {}
-            for i in range(nparameters):
-            	samples[self.floating[i]] = self.sampler.flatchain[ok,i]
+        # trim the chain to the okay values (should this be necessary?)
+        ok = self.sampler.flatlnprobability > (np.max(self.sampler.flatlnprobability) - 100)
 
-            # set the parameter to their MAP values
-            best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
-            self.model.fromArray(best)
+        samples = {}
+        for i in range(nparameters):
+            samples[self.names[i]] = self.sampler.flatchain[ok,i]
 
-            self.notes = {}
-            self.notes['chisq'] = -2*self.model.lnprob(best)
-            self.notes['dof'] = len(self.model.TLC.bjd) - len(self.floating)
-            self.notes['reduced_chisq'] = self.notes['chisq']/self.notes['dof']
-            self.notes['floating'] = self.floating
-            self.pdf = PDF.Sampled(samples=samples)
-            self.pdf.printParameters()
-            self.notes['rescaling'] = np.array(self.pdf.values)[np.array(self.pdf.names) == 'rescaling'][0]
-            self.save()
+        # set the parameter to their MAP values
+        best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
+        self.fromArray(best)
 
-            if plot:
-                self.model.TLC.DiagnosticsPlots(directory=self.directory)
-"""
+
+        self.pdf = PDF.Sampled(samples=samples)
+        self.pdf.printParameters()
+        self.save()
+
+            #if plot:
+            #    self.model.TLC.DiagnosticsPlots(directory=self.directory)

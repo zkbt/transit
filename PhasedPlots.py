@@ -1,15 +1,6 @@
-from imports import *
+from Plots import *
 
-def plotbinned(x, flux, alpha=0.5, bin=6.0/24.0/60.0):
-    bx, by, be = zachopy.oned.binto(x, flux, bin, robust=False, sem=True)
-    plt.errorbar(bx, by, be, color='black', alpha=alpha, elinewidth=3, marker='o', linewidth=0, capthick=3)
-
-class Plot(Talker):
-    def __init__(self):
-        Talker.__init__(self)
-
-
-class Phased(Plot):
+class PhasedPlots(Plot):
     def plot(self, tlcs, xlim=(-.1, 0.1), ylim=(0.99, 1.005), binsize=6.0/24.0/60.0, title=''):
 
 

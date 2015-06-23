@@ -5,5 +5,6 @@ from Planet import Planet
 from Star import Star
 from TLC import TLC
 from TM import TM
-from Synthesizer import Synthesizer, LM
-import Plots
+from Synthesizer import Synthesizer, LM, MCMC
+import Calculator
+from PhasedPlots import PhasedPlots

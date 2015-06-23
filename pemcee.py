@@ -16,10 +16,11 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
 
         # calculate how long it take for one step
         before = datetime.datetime.now()
-        self.run_mcmc(pos0,1)
+        nsteps = 10
+        self.run_mcmc(pos0,nsteps)
         after = datetime.datetime.now()
         dt = after - before
-        timeperstep = dt.microseconds/1.0e6
+        timeperstep = dt.microseconds/1.0e6/nsteps
         self.speak('each step of {nwalkers} walkers takes {timeperstep:0.6f}s'.format(nwalkers=self.k, timeperstep=timeperstep))
 
         # calculate of

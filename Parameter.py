@@ -70,7 +70,7 @@ class Parameter(object):
 		self.independent = False
 
 	def __repr__(self):
-		return "<{name}|{value}\pm{uncertainty}>".format(**self.__dict__)
+		return "<{name}={value}\pm{uncertainty}>".format(**self.__dict__)
 
 	@property
 	def parinfo(self):
@@ -115,8 +115,11 @@ class Parameter(object):
 			return s
 
 	def string(self):
-		ndigits = -np.round(np.log10(self.uncertainty)).astype(np.int)+1
-		s = '${value} \pm {uncertainty}$'.format(value=self.exponent(np.round(self.value, decimals=ndigits)), uncertainty=self.exponent(np.round(self.uncertainty, decimals=ndigits)))
+		if self.uncertainty == 0.0:
+			s = '${value}$'.format(value=self.exponent(np.round(self.value)))
+		else:
+			ndigits = -np.round(np.log10(self.uncertainty)).astype(np.int)+1
+			s = '${value} \pm {uncertainty}$'.format(value=self.exponent(np.round(self.value, decimals=ndigits)), uncertainty=self.exponent(np.round(self.uncertainty, decimals=ndigits)))
 		return s
 		#if ndigits < 0:
 		#	form = '.{0:.0f}f'.format(np.round(-ndigits + 1))
