@@ -10,7 +10,6 @@ import matplotlib.patches
 import copy
 from zachopy.Talker import Talker
 from Fits import LM, MCMC
-plt.ion()
 ppm = 1e6
 
 class TM(Talker):
@@ -70,6 +69,13 @@ class TM(Talker):
 		self.TLC.TM = self
 		self.TLC.TLC = self.TLC
 
+	def linkRV(self, rvcurve):
+		'''Attach a model to a radial velocity curve, defining all the TM and RVC attributes.'''
+		self.RVC = rvcurve
+		self.TM = self
+		self.RVC.TM  = self
+		self.RVC.RVC = self.RVC
+
 	#@profile
 	def set_ebparams(self):
 		'''Set up the parameters required for eb. '''
@@ -81,15 +87,15 @@ class TM(Talker):
 
 		# Mass ratio is used only for computing ellipsoidal variation and
 		# light travel time.  Set to zero to disable ellipsoidal.
-		self.ebparams[eb.PAR_Q]      =  self.planet.mass_ratio
+		self.ebparams[eb.PAR_Q]      =  0#self.planet.q
 
 		# Light travel time coefficient.
-		ktot = 55.602793  # K_1+K_2 in km/s
-		cltt = 1000*ktot / eb.LIGHT
+		#ktot = 55.602793  # K_1+K_2 in km/s
+		#cltt = 1000*ktot / eb.LIGHT
 
 		# Set to zero if you don't need light travel correction (it's fairly slow
 		# and can often be neglected).
-		self.ebparams[eb.PAR_CLTT]   =  cltt#*(self.planet.q.value == 0.0)      # ktot / c
+		self.ebparams[eb.PAR_CLTT]   =  0#cltt#*(self.planet.q.value == 0.0)      # ktot / c
 
 		# Radiative properties of star 1.
 		self.ebparams[eb.PAR_LDLIN1] = self.star.u1.value   # u1 star 1
@@ -134,6 +140,22 @@ class TM(Talker):
 		# can cause scaling problems in minimization routines (because it has
 		# to be so much more precise than the other parameters), and may need
 		# similar treatment.
+
+	def stellar_rv(self, rvc=None, t=None):
+		self.set_ebparams()
+
+		# by default, will use the linked RVC, but could use a custom one (e.g. high-resolution for plotting), or just times
+		if rvc is None:
+			rvc = self.RVC
+
+		if t is None:
+			t = rvc.bjd
+
+		# make sure the types are okay for Jonathan's inputs
+		typ = np.empty_like(t, dtype=np.uint8)
+		typ.fill(eb.OBS_VRAD1)
+
+		return self.planet.semiamplitude.value*eb.model(self.ebparams, t, typ) + self.star.gamma.value
 
 	#@profile
 	def planet_model(self, tlc=None, t=None):

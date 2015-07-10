@@ -8,3 +8,6 @@ from TM import TM
 from Synthesizer import Synthesizer, LM, MCMC
 import Calculator
 from PhasedPlots import PhasedPlots
+from IndividualPlots import IndividualPlots
+from DiagnosticsPlots import DiagnosticsPlots
+from SmooshedPlot import SmooshedPlot

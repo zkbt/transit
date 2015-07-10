@@ -94,6 +94,18 @@ class PDF(Talker):
 	def correlation(self):
 		return self.covariance/self.sigmas.reshape(self.n, 1)/self.sigmas.reshape(1, self.n)
 
+	def export(self, filename, keys=None):
+
+		if keys == None:
+			keys = self.names
+
+		self.speak('saving dictionary to {0} containing samples for'.format(filename))
+		toexport = {}
+		for k in keys:
+			toexport[k] = self.samples[k]
+			self.speak('   {0}'.format(k))
+		np.save(filename, toexport)
+		self.speak('done!')
 
 	def plot(self, keys=None, plotcovariance=False, onesigmalabels=False, subsample=10000, nbins=100, dye=None):
 		'''Make a matrix plot of the PDF.'''
@@ -110,10 +122,10 @@ class PDF(Talker):
 
 		# set up the grid of subplots
 		n = len(keys)
-		scale = 3.0
+		scale = 2.0
 		self.figure = plt.figure('matrix', figsize=(self.n*scale, self.n*scale), dpi=700.0/self.n/scale)
 
-		gs = matplotlib.gridspec.GridSpec(n,n, hspace=0.05, wspace=0.05, left=0.05, right=0.95, bottom=0.05, top=0.95)
+		gs = matplotlib.gridspec.GridSpec(n,n, hspace=0.05, wspace=0.05, left=0.1, right=0.95, bottom=0.1, top=0.95)
 		self.pdfax = {}
 
 		# loop over columns of the grid (i)

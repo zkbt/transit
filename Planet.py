@@ -1,6 +1,7 @@
 from Parameters import Parameters
 import eb
 import numpy as np
+import zachopy.units
 
 class Planet(Parameters):
 	'''Parameters (both set and calculated) describing a planet.'''
@@ -11,10 +12,10 @@ class Planet(Parameters):
 									k=0.1, \
 									rsovera=1.0/10.0, \
 									b=0.0, \
-									q=0.0, \
 									period=10.0, \
 									t0=2456000.0, \
 									dt=0.0, \
+									semiamplitude=0.0, \
 									esinw=0.0, \
 									ecosw=0.0)
 
@@ -28,8 +29,8 @@ class Planet(Parameters):
 		self.b.parinfo['limited'] = [True, True]
 		self.b.parinfo['limits'] = [0.0, 1.0]
 
-		self.q.parinfo['limited'] = [True, False]
-		self.q.parinfo['limits'] = [0, 100]
+		#self.q.parinfo['limited'] = [True, False]
+		#self.q.parinfo['limits'] = [0, 100]
 
 		self.period.parinfo['limited'] = [True, False]
 		self.period.parinfo['limits'] = [0, 100]
@@ -84,6 +85,13 @@ class Planet(Parameters):
 	def sini(self):
 		return np.sqrt(1 - self.cosi**2)
 
+	@property
+	def stellar_density(self):
+		'''requires an estimate of the mass ratio!'''
+		rsovera = self.rsovera.value
+		period = self.period.value*zachopy.units.day
+		q = self.q.value
+		return 3*np.pi/zachopy.units.G/period**2*(1.0/rsovera)**3/(1.0 + q)
 
 	@property
 	def duration(self):
@@ -93,6 +101,24 @@ class Planet(Parameters):
 
 	def contacts(self):
 		return eb.phicont(self.esinw.value, self.ecosw.value, self.cosi, self.rsum_over_a)
+
+	def duration_total(self):
+		period = self.period.value
+		rsovera = self.rsovera.value
+		k = self.k.value
+		b = self.b.value
+		sini = self.sini
+		return period/np.pi*np.arcsin(rsovera/sini*np.sqrt((1.0 + k)**2 - b**2))
+
+	def duration_full(self):
+		period = self.period.value
+		rsovera = self.rsovera.value
+		k = self.k.value
+		b = self.b.value
+		sini = self.sini
+		return period/np.pi*np.arcsin(rsovera/sini*np.sqrt((1.0 - k)**2 - b**2))
+
+
 
 	def thisepoch(self, bjd):
 		return np.round((bjd - self.t0.value)/self.period.value).astype(np.int)

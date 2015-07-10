@@ -34,10 +34,15 @@ class Instrument(Parameters):
 		Parameters.__init__(self, directory=directory, **dict)
 
 
-	def normalize(self, x):
-		s = np.std(x)
+	def normalize(self, x, ok=None):
+		if ok == None:
+			s = np.std(x)
+		else:
+			s = np.std(x[ok])
 		if s == 0:
 			s = np.mean(x)
+			if s == 0.0:
+				s = 1.0
 		return (x - np.mean(x))/s
 
 	#@profile
@@ -76,7 +81,7 @@ class Instrument(Parameters):
 						x = tlc.bjd
 					else:
 						x = tlc.externalvariables[name]
-					tlc._normalized[k] = self.normalize(x)
+					tlc._normalized[k] = self.normalize(x, ok=(tlc.bad == False))
 					ev = tlc._normalized[k]
 
 				# figure out what power the template should be raised to
@@ -84,8 +89,9 @@ class Instrument(Parameters):
 
 				# add the template (to the power) into the model
 				if parameter.value != 0.0:
-					m += parameter.value*ev**power
-		assert(np.isfinite(m).all())
+					if (np.isfinite(ev)).all():
+						m += parameter.value*ev**power
+
 		return m
 		'''if True:
 			t = bjd - np.mean(bjd)

@@ -61,8 +61,11 @@ class TLC(Talker):
 		# make sure an array of "bad" values is defined
 		try:
 			self.bad
-		except:
-			self.bad = np.isfinite(self.flux) == False
+		except AttributeError:
+			try:
+				self.bad = kwargs['bad']
+			except KeyError:
+				self.bad = np.isfinite(self.flux) == False
 
 		# pick the central wavelength of this light curve's bandpass
 		if self.left is None or self.right is None:
@@ -107,6 +110,10 @@ class TLC(Talker):
 			if self.isfake == False:
 				self.save(self.directory)
 
+	@property
+	def effective_uncertainty(self):
+		return self.uncertainty*self.rescaling
+		
 	def setupColors(self, color='eye', minimumuncertainty=0.001):
 		'''Method to set the line and point colots for this light curve.
 			color = 'eye': make colors as they would appear to the human eye
@@ -130,7 +137,7 @@ class TLC(Talker):
 				rgba[:,0] = r
 				rgba[:,1] = g
 				rgba[:,2] = b
-				weights = np.minimum((minimumuncertainty/self.uncertainty/self.rescaling)**2, 1)
+				weights = np.minimum((minimumuncertainty/self.effective_uncertainty)**2, 1)
 				over = weights > 1
 				weights[over] = 1
 				rgba[:,3] = 0.5*weights
@@ -149,7 +156,8 @@ class TLC(Talker):
 		colors = self.colors['points']
 		colors[:,3]*=alpha
 		plt.scatter(x[ok], self.corrected()[ok], color=colors[ok], edgecolor='none', s=50, linewidth=0)
-		plt.scatter(x[self.bad], self.corrected()[self.bad], color=self.color, marker='x', alpha=0.2, s=50)
+		colors[self.bad,3]*0.2
+		plt.scatter(x[self.bad], self.corrected()[self.bad], color=colors[self.bad], marker='x', s=50)
 
 	def restrictToNight(self, night=None):
 		'''Trim to data from only a particular night.'''
@@ -200,7 +208,7 @@ class TLC(Talker):
 		self.externalvariables = {}
 		for key, value in kwargs.iteritems():
 			if len(value) == len(self.bjd):
-				if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength':
+				if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength' and key!= 'bad':
 					self.externalvariables[key] = value
 				else:
 					self.speak( "   " +  key+  " was skipped")
@@ -250,7 +258,6 @@ class TLC(Talker):
 		try:
 			# if the plot window is already set up, don't do anything!
 			self.ax_raw
-			assert(False)
 		except:
 
 
@@ -268,10 +275,13 @@ class TLC(Talker):
 
 				# potentially correlated variables
 				self.to_correlate = []
-				for k in self.TM.floating:
-					if k != 'C':
-						if k in self.TM.instrument.__dict__.keys() and k != 'rescaling':
-							self.to_correlate.append(k.split('_tothe')[0])
+				#for k in self.TM.floating:
+				#	if k != 'C':
+				#		if k in self.TM.instrument.__dict__.keys() and k != 'rescaling':
+				#			self.to_correlate.append(k.split('_tothe')[0])
+				for k in self.externalvariables.keys():
+					if np.std(self.externalvariables[k]) > 0:
+						self.to_correlate.append(k.split('_tothe')[0])
 				ncor = np.int(np.ceil(np.sqrt(len(self.to_correlate))))
 				gs_external = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
 
@@ -317,16 +327,18 @@ class TLC(Talker):
 			if everything:
 
 				# create a plot to store an autocorrelation function
-				self.ax_text = plt.subplot(gs_diagnostics[0])
+				#self.ax_text = plt.subplot(gs_diagnostics[0])
 
-				todisplay = self.TM.lastfit.pdf.listParameters()
+				try:
+					todisplay = self.TM.lastfit.pdf.listParameters()
 
-				todisplay += '\n'
-				todisplay += 'chisq = {chisq:.1f}/{dof:.0f}\nrescaling = {rescaling:.2f}'.format(**self.TM.lastfit.notes)
+					todisplay += '\n'
+					todisplay += 'chisq = {chisq:.1f}/{dof:.0f}\nrescaling = {rescaling:.2f}'.format(**self.TM.lastfit.notes)
 
-				self.ax_text.text(-0.1, 1.1, todisplay, va='top', fontsize=11)
-				self.ax_text.axis('off')
-
+					self.ax_text.text(-0.1, 1.1, todisplay, va='top', fontsize=11)
+					self.ax_text.axis('off')
+				except AttributeError:
+					self.speak('no fit was found to print')
 				# create a plot to store an autocorrelation function
 				self.ax_acf = plt.subplot(gs_diagnostics[1])
 				self.ax_acf.set_xlabel('Lag (in datapoints)')
@@ -400,7 +412,11 @@ class TLC(Talker):
 
 		# loop over the existing external variables, and populate them too
 		for evkey in self.TLC.externalvariables.keys():
-			dict[evkey] = np.interp(new_bjd, self.TLC.bjd, self.TLC.externalvariables[evkey])
+			#interpolator = scipy.interpolate.interp1d(self.TLC.bjd, #self.TLC.externalvariables[evkey])
+
+			#dict[evkey] = interpolator(new_bjd)
+			ok = self.bad == False
+			dict[evkey] = np.interp(new_bjd, self.TLC.bjd[ok], self.TLC.externalvariables[evkey][ok])
 
 		# create the fake TLC
 		return TLC(left=self.left, right=self.right, directory=self.directory + 'fake/', isfake=True, **dict)
@@ -412,8 +428,8 @@ class TLC(Talker):
 		self.setupLightcurvePlots()
 
 		# create smoothed TLC structures, so the modeling will work
-		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 100000))
-		self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 100000))
+		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 10000))
+		self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 10000))
 
 
 
@@ -448,18 +464,27 @@ class TLC(Talker):
 	def residuals(self):
 		return self.flux/self.TM.model() - 1
 
-	def residualsexceptfor(self, exception=None):
+	def residualsexceptfor(self, exception=None, modeltoo=False):
 
 		if exception is not None:
 			original = {}
+			instincluding = self.TM.instrument_model()
 			for power in [1,2]:
 				key = exception + '_tothe{0}'.format(power)
-				original[key] = self.TM.instrument.__dict__[key].value + 0.0
-			 	self.TM.instrument.__dict__[key].value = 0.0
+				try:
+					original[key] = self.TM.instrument.__dict__[key].value + 0.0
+			 		self.TM.instrument.__dict__[key].value = 0.0
+				except KeyError:
+					pass
 			ref = self.flux/self.TM.model() - 1
+			instwithout = self.TM.instrument_model()
 			for key in original.keys():
 				self.TM.instrument.__dict__[key].value = original[key]
-		return ref
+
+			if modeltoo:
+				inst = instincluding - instwithout
+				return ref, inst
+			return ref
 
 	def instrumental(self):
 		about_instrument = self.flux/self.TM.planet_model()
@@ -499,11 +524,11 @@ class TLC(Talker):
 		self.setupDiagnostics()
 		ppm=1e6
 		# create smoothed TLC structures, so the modeling will work
-		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 100000))
-		self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 100000))
+		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 10000))
+		self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 10000))
 
-		goodkw = {'color':self.colors['points'], 'alpha':0.5, 'linewidth':0, 'marker':'o', 'markeredgecolor':self.colors['points'], 'markersize':6}
-		badkw = {'color':self.colors['points'], 'alpha':0.25, 'linewidth':0, 'marker':'x', 'markeredgecolor':self.colors['points'], 'markersize':6}
+		goodkw = {'color':self.colors['points'], 'alpha':1, 'linewidth':0, 'marker':'o', 'edgecolor':self.colors['points'], 's':20}
+		badkw = {'color':self.colors['points'], 'alpha':0.25, 'linewidth':0, 'marker':'x', 'edgecolor':self.colors['points'], 's':20}
 		time = self.TM.planet.timefrommidtransit(self.bjd)
 
 		notok = self.bad
@@ -511,17 +536,19 @@ class TLC(Talker):
 			if good:
 				ok = (self.bad == 0).nonzero()
 				kw = goodkw
+				if np.sum(ok) == 0:
+					return
 			else:
 				ok = (self.bad).nonzero()
 				kw = badkw
 			if np.sum(ok) == 0:
 				continue
-			self.points_raw = self.ax_raw.scatter(time[ok], self.flux[ok], **kw)[0]
-			self.points_corrected = self.ax_corrected.plot(scatter[ok], self.flux[ok]/self.TM.instrument_model()[ok], **kw)[0]
-			self.points_residuals = self.ax_residuals.plot(scatter[ok], ppm*self.residuals()[ok], **kw)[0]
-			self.points_instrument = self.ax_instrument.plot(scatter[ok], ppm*self.instrumental()[ok], **kw)[0]
+			self.ax_raw.scatter(time[ok], self.flux[ok], **kw)
+			self.ax_corrected.scatter(time[ok], self.flux[ok]/self.TM.instrument_model()[ok], **kw)
+			self.ax_residuals.scatter(time[ok], ppm*self.residuals()[ok], **kw)
+			self.ax_instrument.scatter(time[ok], ppm*self.instrumental()[ok], **kw)
 			self.points_correlations = {}
-			kw['markersize'] = 2
+			kw['s'] = 10
 			kw['alpha'] *= 0.5
 			for k in self.ax_correlations.keys():
 				#self.ax_correlations[k].plot(ppm*self.instrumental()[ok], self.externalvariables[k][ok], **kw)[0]
@@ -529,7 +556,11 @@ class TLC(Talker):
 
 				# plot the external variables
 				x = self.externalvariables[k]
-				self.ax_correlations[k].scatter(ppm*(self.residualsexceptfor(k)[ok]), x[ok], **kw)[0]
+				self.ax_correlations[k].scatter(ppm*(self.residualsexceptfor(k)[ok]), x[ok], **kw)
+				if good:
+					binwidth = (np.nanmax(x[ok]) - np.nanmin(x[ok]))/10.0
+					bx, by, be = zachopy.oned.binto(x[ok], ppm*(self.residualsexceptfor(k)[ok]),  binwidth=binwidth, yuncertainty=self.uncertainty[ok], robust=False, sem=True)
+					self.ax_correlations[k].errorbar(by, bx, None, be, color='black', alpha=0.3, elinewidth=3, marker='o', linewidth=0, capthick=3)
 				self.ax_timeseries[k].scatter( time[ok], self.externalvariables[k][ok], **kw)
 
 				# set limits of plot windows
@@ -571,7 +602,7 @@ class TLC(Talker):
 		kw['linewidth'] = 1
 		#for k in self.ax_correlations.keys():
 			#self.line_correlations[k] = self.ax_correlations[k].plot(ppm*justinstrument, self.TM.smooth_unphased_tlc.externalvariables[k],  **kw)[0]
-		assert(np.std(ppm*justinstrument)>1)
+		#assert(np.std(ppm*justinstrument)>1)
 
 		nsigma = 5
 		if noiseassumedforplotting is None:
@@ -595,7 +626,7 @@ class TLC(Talker):
 		if directory is None:
 			directory = self.TM.directory
 
-		filename = directory + 'lightcurveDiagnostics.pdf'
+		filename = directory + self.name.translate(None, '!@#$%^&*()<>') + '_lightcurveDiagnostics.pdf'
 		self.speak('saving light curve diagnostic plot to {0}'.format(filename))
 		plt.savefig(filename)
 
@@ -629,7 +660,7 @@ class TLC(Talker):
 				newTLC = TLC(self.bjd[ok], self.flux[ok], self.uncertainty[ok],
 								left=self.left, right=self.right,
 								directory = self.directory + '{0:.0f}/'.format(u), color=self.color,
-								epoch=u, telescope=self.telescope, name=None, remake=True, **ev)
+								epoch=u, telescope=self.telescope, name=None, remake=True, bad=self.bad[ok], **ev)
 				print '=======',newTLC.left, newTLC.right
 				newTLCs.append(newTLC)
 			else:

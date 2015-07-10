@@ -16,7 +16,7 @@ def makeCode(d):
 class Synthesizer(Talker):
     '''Combine multiple TLCs (and maybe RVCs) together, a fit them simultaneously.'''
 
-    def __init__(self, tlcs, rvcs=[], **kwargs):
+    def __init__(self, tlcs=[], rvcs=[], **kwargs):
         '''Synthesizes a list of transit light curves (and their models),
             allowing them to be fit jointly.'''
 
@@ -113,7 +113,7 @@ class Synthesizer(Talker):
             p = self.parameters.pop()
             group = p['telescope']
             try:
-                match = name in p['name']
+                match = name == p['name']
             except KeyError:
                 match = False
 
@@ -169,7 +169,7 @@ class Synthesizer(Talker):
             p = self.parameters.pop()
             group = p['epoch']
             try:
-                match = name in p['name']
+                match = name == p['name']
             except KeyError:
                 match = False
 
@@ -223,6 +223,10 @@ class Synthesizer(Talker):
 
             combined_deviates.extend(devs)
 
+        density_prior = (self.tms[0].planet.stellar_density - 31.1)/2.9
+
+        combined_deviates.append(density_prior)
+
         # mpfit wants a list with the first element containing a status code
         return [status,np.array(combined_deviates)]
 
@@ -238,6 +242,7 @@ class Synthesizer(Talker):
         #lnlikelihood = -N * np.log(self.instrument.rescaling.value) - chisq/self.instrument.rescaling.value**2
 
         lnlikelihood = - chisq#/self.instrument.rescaling.value**2
+
 
         # don't let infinitely bad likelihoods break code
         if np.isfinite(lnlikelihood) == False:
@@ -256,7 +261,10 @@ class Synthesizer(Talker):
                 constraints -= 1e6
 
         # return the constrained likelihood
-        return lnlikelihood + constraints
+        #print self.tms[0].planet.stellar_density, density_prior
+        return lnlikelihood + constraints# + density_prior
+
+
 
     @property
     def label(self):
@@ -363,7 +371,7 @@ class Fit(Synthesizer):
 class LM(Fit):
     def __init__(self, tlcs, label='.', **kwargs):
         Fit.__init__(self, tlcs, **kwargs)
-        self.directory = label + '/'
+        self.directory = label + 'lm/'
         zachopy.utils.mkdir(self.directory)
 
     def fit(self, plot=False, quiet=False, firstpass=True, secondpass=False, remake=False, **kwargs):
@@ -451,7 +459,7 @@ class MCMC(Fit):
         zachopy.utils.mkdir(self.directory)
 
     def fit(self,
-        nburnin=500, ninference=500, nwalkers=100,
+        nburnin=1000, ninference=1000, nwalkers=500,
         broad=True, ldpriors=True,
         plot=True, interactive=False, remake=False, **kwargs):
         '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
@@ -481,9 +489,16 @@ class MCMC(Fit):
 
         # loop over the parameters
         for i in range(nparameters):
-            parameter = self.parameters[i]['parameter'][0]
-            initialwalkers[:,i] = np.random.uniform(parameter.limits[0], parameter.limits[1], nwalkers)
-            self.speak('  {parameter.name} picked from uniform distribution spanning {parameter.limits}'.format(**locals()))
+            # parameter = self.parameters[i]['parameter'][0]
+
+            # take the initial uncertainties, and start around them
+            nsigma=5
+            parameter = self.lm.parameters[i]['parameter'][0]
+            bottom = parameter.value - nsigma*parameter.uncertainty
+            top = parameter.value + nsigma*parameter.uncertainty
+
+            initialwalkers[:,i] = np.random.uniform(bottom, top, nwalkers)
+            self.speak('  {parameter.name} picked from uniform distribution spanning {bottom} to {top}'.format(**locals()))
 
         # set up the emcee sampler
         self.sampler = emcee.EnsembleSampler(nwalkers, nparameters, self.lnprob)
@@ -498,10 +513,11 @@ class MCMC(Fit):
         pos = initialwalkers
         while burnt == False:
             self.speak("running {0} burn-in steps, with {1} walkers.".format(nburnin, nwalkers))
-            pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin, updates=0.001)
+            pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin)
 
             if interactive:
                 self.sampler.HistoryPlot([count, count + nburnin])
+                plt.draw()
 
             if interactive:
                 answer = self.input('Do you think we have burned in?')
