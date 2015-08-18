@@ -5,6 +5,9 @@ import matplotlib.gridspec
 from transit.Parameter import Parameter
 from zachopy.Talker import Talker
 import copy
+import scipy.special
+import triangle
+
 
 # which attributes can be saved?
 saveable = ['names', 'values', 'covariance', 'samples']
@@ -107,6 +110,37 @@ class PDF(Talker):
 		np.save(filename, toexport)
 		self.speak('done!')
 
+	def triangle(self, keys=None, truths=None, quantiles=[0.16, 0.5, 0.84], title=None,  **kwargs):
+		data = []
+
+		for k in keys:
+			try:
+				ok *= np.isfinite(self.samples[k])
+			except UnboundLocalError:
+				ok = np.isfinite(self.samples[k])
+
+		for k in keys:
+			data.append(self.samples[k][ok])
+
+		data = np.vstack(data).transpose()
+
+		# make the plot
+		figure = triangle.corner(data,
+								labels=keys,
+								truths=truths,
+								quantiles=quantiles,
+								title_args={"fontsize": 12},
+								levels = 1.0 - np.exp(-0.5 * np.array([1.0,2.0]) ** 2),
+								 **kwargs)
+
+		if title is not None:
+			figure.gca().annotate(title, xy=(0.5, 1.0), xycoords="figure fraction",
+                      xytext=(0, -5), textcoords="offset points",
+                      ha="center", va="top")
+
+		return figure
+
+
 	def plot(self, keys=None, plotcovariance=False, onesigmalabels=False, subsample=10000, nbins=100, dye=None):
 		'''Make a matrix plot of the PDF.'''
 
@@ -199,7 +233,7 @@ class PDF(Talker):
 			return len(str.split('.')[-1])
 
 		# keep two significant digits on the uncertainties
-		uformat = '{0:+.2g}'.format
+		uformat = '{0:+.3g}'.format
 
 		# keep the same number of (total) digits for the central value
 		vformatstring = '{0}'.format(postdecimal(uformat(self.parameters[i].uncertainty)))
@@ -313,9 +347,22 @@ class Sampled(PDF):
 				dy = self.samples[self.parameters[j].name][:] - self.parameters[j].value
 				self.covariance[i,j] = np.mean(dx*dy)
 
-	def calculateUncertainties(self):
+	def calculateUncertainties(self, style='percentiles'):
+
 		for i in range(self.n):
-			self.parameters[i].uncertainty = np.std(self.samples[self.parameters[i].name])
+
+			if style == 'percentiles':
+				edge = (1 - scipy.special.erf(1.0/np.sqrt(2)))/2.0
+				limits = [100*edge, 100*(1-edge)]
+				span = np.percentile(self.samples[self.parameters[i].name], limits)
+				value = np.mean(span)
+				uncertainty = (span[1] - span[0])/2.0
+			elif style == 'std':
+				value = np.mean(self.samples[self.parameters[i].name])
+				uncertainty = np.std(self.samples[self.parameters[i].name])
+
+			self.parameters[i].value = value
+			self.parameters[i].uncertainty = uncertainty
 
 
 class MVG(PDF):

@@ -2,17 +2,15 @@ from Plots import *
 
 class IndividualPlots(Plot):
 
-
     @property
     def individuals(self):
         # individual telescopes
         return np.array([self.identifier(t) for t in self.tlcs])
 
-
     def identifier(self, tlc):
         return str(tlc)
 
-    def setup(self, tlcs=None, stretch=2, epochs=[287,295,306,317], telescopes=['MEarth13','MEarth12','MEarth14', 'MEarth18', 'TRAPPIST', 'PISCOg', 'PISCOi'], **kwargs):
+    def setup(self, tlcs=None, stretch=2, epochs=[-19, -11,  0, 11], telescopes=['MEarth13','MEarth12','MEarth14', 'MEarth18', 'TRAPPIST', 'PISCOg', 'PISCOi'], **kwargs):
         # set up the axes for the plot
         self.tlcs = tlcs
         if telescopes is None:
@@ -52,8 +50,6 @@ class IndividualPlots(Plot):
                 plt.setp(self.axes[ident].get_xticklabels(), visible=False)
             else:
                 self.axes[ident].set_xlabel('Time from Mid-Transit (days)')
-
-
 
 
     def plot(self, tlcs, xlim=(-.075, 0.075), ylim=(0.99, 1.005), binsize=6.0/24.0/60.0, title=''):

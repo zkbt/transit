@@ -25,18 +25,40 @@ class Synthesizer(Talker):
 
         # define the TLCs and the TMs, in the same order
         self.tlcs = tlcs
-        self.tms = [tlc.TM for tlc in self.tlcs]
         self.rvcs = rvcs
+        self.data = []
+        try:
+            self.data.extend(self.tlcs)
+        except TypeError:
+            pass
+        try:
+            self.data.extend(self.rvcs)
+        except TypeError:
+            pass
+
+        self.tms = [thing.TM for thing in self.data]
+
         self.findParameters()
 
     @property
     def n(self):
-        # the number of data-points
+        return self.nlc + self.nrv
+
+    @property
+    def nlc(self):
+        # the number of data-points in the light curves
         tot = 0
         for tlc in self.tlcs:
             tot += len(tlc.bjd)
         return tot
 
+    @property
+    def nrv(self):
+        # the number of data-points in the radial velocity curves
+        tot = 0
+        for rvc in self.rvcs:
+            tot += len(rvc.bjd)
+        return tot
 
 
     @property
@@ -50,13 +72,13 @@ class Synthesizer(Talker):
         set parameters when called by a fitter like MPFIT or emcee.'''
 
         self.parameters = []
-        for i in range(len(self.tlcs)):
-            tm, tlc = self.tms[i], self.tlcs[i]
+        for i in range(len(self.data)):
+            tm, data = self.tms[i], self.data[i]
             for p in tm.parameters:
 
                 this = dict(name=p.name,                # general name of par.
-                            telescope=tlc.telescope,    # the telescope
-                            epoch=tlc.epoch,            # the epoch
+                            telescope=data.telescope,    # the telescope
+                            epoch=data.epoch,            # the epoch
                             parameter=[p])              # list of 1 or more
                 this['code'] = makeCode(this)           # set the code
                 self.parameters.append(this)
@@ -198,7 +220,8 @@ class Synthesizer(Talker):
             this['code'] = makeCode(this)
             self.parameters.append(this)
 
-    def deviates(self, p, fjac=None, plotting=False):
+
+    def deviatesTLC(self, p, fjac=None, plotting=False):
         '''Return the normalized deviates (an input for mpfit), collected from
             all the transit models.'''
 
@@ -219,29 +242,82 @@ class Synthesizer(Talker):
             ok = (tlc.bad == 0).nonzero()
 
             # calculate the deviates for this one TLC
-            devs = (tlc.flux[ok] - tlc.TM.model()[ok])/tlc.uncertainty[ok]/tlc.rescaling
+            devs = (tlc.flux[ok] - tlc.TM.model()[ok])/tlc.effective_uncertainty[ok]
 
             combined_deviates.extend(devs)
 
-        density_prior = (self.tms[0].planet.stellar_density - 31.1)/2.9
+        #assert(self.densityprior == False)
+        #assert(self.densityprior is not None)
+        if (self.densityprior is not None) & (len(combined_deviates) > 0):
+            central, width = self.densityprior
+            if len(self.tms) > 1:
+                assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
+            density_prior = (self.tms[0].planet.stellar_density - central)/width
+            combined_deviates.append(density_prior)
+        #print density_prior
+        # mpfit wants a list with the first element containing a status code
+        return [status,combined_deviates]
 
-        combined_deviates.append(density_prior)
+    def deviatesRVC(self, p, fjac=None, plotting=False):
+        '''Return the normalized deviates (an input for mpfit), collected from
+            all the radial velocity curves.'''
+
+        # update all the parameters inside the models, from the array
+        self.fromArray(p)
+
+        # set status to 0
+        status = 0
+
+        combined_deviates = []
+        for rvc in self.rvcs:
+
+            # weight only the good points
+            ok = (rvc.bad == 0).nonzero()
+
+            # calculate the deviates for this one TLC
+            devs = (rvc.rv[ok] - rvc.TM.stellar_rv()[ok])/rvc.effective_uncertainty[ok]
+
+            combined_deviates.extend(devs)
 
         # mpfit wants a list with the first element containing a status code
-        return [status,np.array(combined_deviates)]
+        return [status,combined_deviates]
+
+    def deviates(self, p, fjac=None, plotting=False):
+        dev = []
+        lcstatus, lightcurve = self.deviatesTLC(p, fjac=fjac, plotting=plotting)
+        dev.extend(lightcurve)
+        rvstatus, rv = self.deviatesRVC(p, fjac=fjac, plotting=plotting)
+        dev.extend(rv)
+
+
+        if (self.periodprior is not None):
+            central, width = self.periodprior
+            value = self.tms[0].planet.period.value
+            prior = (value - central)/width
+            dev.append(prior)
+
+        if (self.t0prior is not None):
+            central, width = self.t0prior
+            value = self.tms[0].planet.t0.value
+            prior = (value - central)/width
+            dev.append(prior)
+
+        return [(lcstatus | rvstatus), np.array(dev) ]
 
     ##@profile
     def lnprob(self, p):
         """Return the log posterior, calculated from the deviates function (which may have included some conjugate Gaussian priors.)"""
 
 
-        chisq = np.sum(self.deviates(p)[-1]**2)/2.0
+        chisq = np.sum(self.deviates(p)[-1]**2)
         #N = np.sum(self.TLC.bad == 0)
 
         # sum the deviates into a chisq-like thing
         #lnlikelihood = -N * np.log(self.instrument.rescaling.value) - chisq/self.instrument.rescaling.value**2
 
-        lnlikelihood = - chisq#/self.instrument.rescaling.value**2
+
+
+        lnlikelihood = - chisq/2.0#/self.instrument.rescaling.value**2
 
 
         # don't let infinitely bad likelihoods break code
@@ -250,6 +326,8 @@ class Synthesizer(Talker):
 
         # initialize an empty constraint, which could freak out if there's something bad about this fit
         constraints = 0.0
+
+
 
         # loop over the parameters
         for parameter in self.parameters:
@@ -260,16 +338,21 @@ class Synthesizer(Talker):
             if inside == False:
                 constraints -= 1e6
 
+        jitterconstraint = 0.0
+        for rvc in self.rvcs:
+            jitterconstraint += np.sum(np.log(1.0/rvc.effective_uncertainty))
+            #self.speak('for jitter of {0}, penalty is {1}'.format(rvc.jitter, jitterconstraint))
+
         # return the constrained likelihood
         #print self.tms[0].planet.stellar_density, density_prior
-        return lnlikelihood + constraints# + density_prior
+        return lnlikelihood + constraints + jitterconstraint# + density_prior
 
 
 
     @property
     def label(self):
-        telescopes = np.unique([tlc.telescope for tlc in self.tlcs])
-        epochs = np.unique([tlc.epoch for tlc in self.tlcs])
+        telescopes = np.unique([thing.telescope for thing in self.data])
+        epochs = np.unique([thing.epoch for thing in self.data])
 
         return '{0}tlcs{1}telescopes{2}epochs{3}rvcs'.format(
                     len(self.tlcs),
@@ -278,8 +361,8 @@ class Synthesizer(Talker):
                     len(self.rvcs))
 
 class Fit(Synthesizer):
-    def __init__(self, tlcs, directory=None, **kwargs):
-        Synthesizer.__init__(self, tlcs, **kwargs)
+    def __init__(self, tlcs=[], rvcs=[], directory=None, **kwargs):
+        Synthesizer.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
 
         if directory == None:
             base = 'synthesized/'
@@ -343,6 +426,7 @@ class Fit(Synthesizer):
             assert(tlc.name == this['name'])
             tlc.rescaling = this['rescaling']
             tlc.bad = this['ok'] == False
+            assert(tlc.bad.shape == tlc.flux.shape)
             #assert(tlc.chisq() == this['chisq'])
 
         self.speak('applied the outlier clipping and rescaling')
@@ -367,14 +451,17 @@ class Fit(Synthesizer):
             tlc.rescaling = np.maximum(np.sqrt(reduced_chisq), 1)
             self.speak('rescaling original errors by {0} for next fit'.format(tlc.rescaling))
 
+            tlc.beta = tlc.bestBeta()
+            self.speak('set the beta to be {0} for next fit'.format(tlc.beta))
+
 
 class LM(Fit):
-    def __init__(self, tlcs, label='.', **kwargs):
-        Fit.__init__(self, tlcs, **kwargs)
-        self.directory = label + 'lm/'
+    def __init__(self, tlcs=[], rvcs=[], label='', **kwargs):
+        Fit.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
+        self.directory = self.directory + 'lm/'
         zachopy.utils.mkdir(self.directory)
 
-    def fit(self, plot=False, quiet=False, firstpass=True, secondpass=False, remake=False, **kwargs):
+    def fit(self, plot=False, quiet=False, firstpass=True, secondpass=False, remake=False, densityprior=None, periodprior=None, t0prior=None, **kwargs):
         '''Use LM (mpfit) to find the maximum probability parameters, and a covariance matrix.'''
 
         try:
@@ -383,6 +470,11 @@ class LM(Fit):
             return
         except (AssertionError,IOError):
             self.speak('could not load this fit, making it from scratch!')
+
+        self.densityprior=densityprior
+        self.periodprior=periodprior
+        self.t0prior=t0prior
+
 
         self.speak('performing a fast LM fit')
 
@@ -414,9 +506,8 @@ class LM(Fit):
 
             # rescaling the uncertainties
             self.setRescaling()
-
             # refit, after the outliers have been rejected
-            self.fit(plot=plot, remake=remake, quiet=quiet, firstpass=False, secondpass=True, **kwargs)
+            self.fit(plot=plot, remake=remake, quiet=quiet, firstpass=False, secondpass=True, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior, **kwargs)
             return
 
         # on second pass, simply reset the rescalings, now that one fit has been done with ~correct weights
@@ -425,7 +516,7 @@ class LM(Fit):
             self.setRescaling()
 
             # refit, after the outliers have been rejected
-            self.fit(remake=remake, plot=plot, quiet=quiet, firstpass=False, secondpass=False, **kwargs)
+            self.fit(remake=remake, plot=plot, quiet=quiet, firstpass=False, secondpass=False, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior, **kwargs)
             return
 
         # store the covariance matrix of the fit, and the 1D uncertainties on the parameters
@@ -453,31 +544,36 @@ class LM(Fit):
 
 
 class MCMC(Fit):
-    def __init__(self, model, **kwargs):
-        Fit.__init__(self, model)
+    def __init__(self, tlcs=[], rvcs=[], **kwargs):
+        Fit.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
         self.directory = self.directory + 'mcmc/'
         zachopy.utils.mkdir(self.directory)
 
     def fit(self,
         nburnin=1000, ninference=1000, nwalkers=500,
-        broad=True, ldpriors=True,
-        plot=True, interactive=False, remake=False, **kwargs):
+        broad=True, ldpriors=True, fromcovariance=True, densityprior=None, periodprior=None, t0prior=None,
+        plot=True, interactive=False, remake=False, updates=10, **kwargs):
         '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
+
+        self.densityprior=densityprior
+        self.periodprior=periodprior
+        self.t0prior=t0prior
 
         self.speak('running an MCMC fit')
         try:
             assert(remake==False)
             self.load()
             return
-        except:
+        except IOError:
             self.speak('could not load this MCMC fit, remaking it from scratch')
 
-        # create a LM fit to initialize the outlier rejection and rescaling
-        self.lm = LM(self.tlcs)
-        # set LM fit's (possibly linked) parameters to be same as this one
-        self.lm.parameters = self.parameters
-        # run (or load) the fit
-        self.lm.fit()
+        #if fromcovariance:
+        if len(self.tlcs) > 0:    # create a LM fit to initialize the outlier rejection and rescaling
+            self.lm = LM(self.tlcs, directory=self.directory)
+            # set LM fit's (possibly linked) parameters to be same as this one
+            self.lm.parameters = self.parameters
+            # run (or load) the fit
+            self.lm.fit(remake=remake, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior)
 
         # pull the parameter array out of the list of dictionaries
         p0, parinfo = self.toArray()
@@ -490,12 +586,17 @@ class MCMC(Fit):
         # loop over the parameters
         for i in range(nparameters):
             # parameter = self.parameters[i]['parameter'][0]
-
+            parameter = self.parameters[i]['parameter'][0]
             # take the initial uncertainties, and start around them
-            nsigma=5
-            parameter = self.lm.parameters[i]['parameter'][0]
-            bottom = parameter.value - nsigma*parameter.uncertainty
-            top = parameter.value + nsigma*parameter.uncertainty
+            if fromcovariance:
+                nsigma=5
+                #parameter = self.lm.parameters[i]['parameter'][0]
+                bottom = parameter.value - nsigma*parameter.uncertainty
+                top = parameter.value + nsigma*parameter.uncertainty
+            else:
+
+                bottom = np.min(parameter.limits)
+                top = np.max(parameter.limits)
 
             initialwalkers[:,i] = np.random.uniform(bottom, top, nwalkers)
             self.speak('  {parameter.name} picked from uniform distribution spanning {bottom} to {top}'.format(**locals()))
@@ -513,7 +614,7 @@ class MCMC(Fit):
         pos = initialwalkers
         while burnt == False:
             self.speak("running {0} burn-in steps, with {1} walkers.".format(nburnin, nwalkers))
-            pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin)
+            pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin, updates=updates)
 
             if interactive:
                 self.sampler.HistoryPlot([count, count + nburnin])
@@ -538,16 +639,17 @@ class MCMC(Fit):
         self.sampler.run_mcmc_with_progress(pos, ninference)
 
         # trim the chain to the okay values (should this be necessary?)
-        ok = self.sampler.flatlnprobability > (np.max(self.sampler.flatlnprobability) - 100)
+        # ok = self.sampler.flatlnprobability > (np.max(self.sampler.flatlnprobability) - 100)
 
         samples = {}
         for i in range(nparameters):
-            samples[self.names[i]] = self.sampler.flatchain[ok,i]
+            samples[self.names[i]] = self.sampler.flatchain[:,i]
+        samples['lnprob'] = self.sampler.flatlnprobability[:]
+
 
         # set the parameter to their MAP values
         best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
         self.fromArray(best)
-
 
         self.pdf = PDF.Sampled(samples=samples)
         self.pdf.printParameters()

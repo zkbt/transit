@@ -246,12 +246,20 @@ class TM(Talker):
 			parinfolist.append(parameter.parinfo)
 		return list, parinfolist
 
-	def plotPhased(self, **kw):
+	def plotPhased(self, smooth=None, **kw):
 		'''Plot the light curve model, phased with the planetary period.'''
 		t_phased = self.planet.timefrommidtransit(self.smooth_phased_tlc.bjd)
 		assert(len(t_phased) == len(self.model(self.smooth_phased_tlc)))
 
-		plt.plot(t_phased, self.planet_model(self.smooth_phased_tlc), **kw)
+		toplot = self.planet_model(self.smooth_phased_tlc)
+		if smooth is not None:
+			cadence = np.mean(self.smooth_phased_tlc.bjd[1:] - self.smooth_phased_tlc.bjd[:-1])
+			n = np.round(smooth/cadence).astype(np.int)
+			kernel = np.ones(n)/n
+			toplot = np.convolve(toplot, kernel, 'same')
+		else:
+			toplot = self.planet_model(self.smooth_phased_tlc)
+		plt.plot(t_phased, toplot, **kw)
 		'''KLUDGED COMMENTED OUT!'''
 		#try:
 		#	for phased in [self.line_phased[0], self.line_phased_zoom[0]]:

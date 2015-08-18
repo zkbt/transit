@@ -1,11 +1,17 @@
 from Plots import *
 
+def glom(s):
+    if 'MEarth' in s:
+        return 'MEarth'
+    else:
+        return s
+
 class PhasedPlots(Plot):
 
 
     def setup(self, tlcs=None, **kwargs):
         self.tlcs = tlcs
-        self.telescopes = np.unique([tlc.telescope for tlc in tlcs])
+        self.telescopes = np.unique([glom(tlc.telescope) for tlc in tlcs])
 
         if len(self.telescopes) == 1:
             h = 1
@@ -34,7 +40,7 @@ class PhasedPlots(Plot):
                 self.axes[telescope]= plt.subplot(gs[count], sharex=self.axes['all'], sharey=self.axes['all'])
                 count += 1
                 self.axes[telescope].yaxis.set_label_position("right")
-                self.axes[telescope].set_ylabel('{0}'.format(tlc.telescope))
+                self.axes[telescope].set_ylabel('{0}'.format(glom(tlc.telescope)))
                 self.axes[telescope].set_ylabel(telescope)
 
 
@@ -59,7 +65,7 @@ class PhasedPlots(Plot):
             tels[:] = tlc.name.replace(' ','')
             whichtelescope.extend(tels)
 
-            telescope = tlc.telescope
+            telescope = glom(tlc.telescope)
             try:
                 wholetel[telescope]
             except KeyError:

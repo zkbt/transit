@@ -118,7 +118,7 @@ class Parameter(object):
 		if self.uncertainty == 0.0:
 			s = '${value}$'.format(value=self.exponent(np.round(self.value)))
 		else:
-			ndigits = -np.round(np.log10(self.uncertainty)).astype(np.int)+1
+			ndigits = -np.round(np.log10(self.uncertainty)).astype(np.int)+2
 			s = '${value} \pm {uncertainty}$'.format(value=self.exponent(np.round(self.value, decimals=ndigits)), uncertainty=self.exponent(np.round(self.uncertainty, decimals=ndigits)))
 		return s
 		#if ndigits < 0:

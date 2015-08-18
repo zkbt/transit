@@ -90,7 +90,7 @@ class Planet(Parameters):
 		'''requires an estimate of the mass ratio!'''
 		rsovera = self.rsovera.value
 		period = self.period.value*zachopy.units.day
-		q = self.q.value
+		q = 0.0#self.q.value
 		return 3*np.pi/zachopy.units.G/period**2*(1.0/rsovera)**3/(1.0 + q)
 
 	@property

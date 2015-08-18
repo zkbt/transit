@@ -28,7 +28,7 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
             after = datetime.datetime.now()
             count += updates
 
-            span = (after - before).seconds/60.0
+            span = np.maximum((after - before).seconds, 1)/60.0
             rate = count/span
             remaining = (N-count)/rate
             self.speak('completed {0}/{1} steps, in {2} minutes, with {3} minutes remaining'.format(count, N, span, remaining))

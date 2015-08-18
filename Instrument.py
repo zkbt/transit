@@ -35,7 +35,7 @@ class Instrument(Parameters):
 
 
 	def normalize(self, x, ok=None):
-		if ok == None:
+		if ok is None:
 			s = np.std(x)
 		else:
 			s = np.std(x[ok])

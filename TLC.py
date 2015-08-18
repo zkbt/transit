@@ -11,6 +11,7 @@ class TLC(Talker):
 
 	def __init__(self, bjd=None, flux=None, uncertainty=None,
 						inputfilename=None, directory=None,
+						path=None,
 						left=None, right=None,
 						name=None,
 						remake=False,
@@ -25,6 +26,7 @@ class TLC(Talker):
 		self.speak('creating an empty TLC')
 
 		self.rescaling = 1.0
+		self.beta = 1.0
 
 		# define a dictionary of flags that can be used for bad data
 		self.flags = dict(outlier=1, saturation=2, custom=4)
@@ -46,6 +48,10 @@ class TLC(Talker):
 
 		# specify a directory in which to store saved versions of this TLC,
 		# 	as well as other outputs (plots, etc...)
+		if path is not None:
+			zachopy.utils.mkdir(path)
+			directory = path + 'T={telescope}_E={epoch}/'.format(**self.__dict__)
+
 		self.directory = directory
 		if self.directory is None:
 			try:
@@ -58,14 +64,7 @@ class TLC(Talker):
 		# initialize the TLC by filling it with data
 		self.initialize(bjd=bjd, flux=flux, uncertainty=uncertainty, remake=remake, **kwargs)
 
-		# make sure an array of "bad" values is defined
-		try:
-			self.bad
-		except AttributeError:
-			try:
-				self.bad = kwargs['bad']
-			except KeyError:
-				self.bad = np.isfinite(self.flux) == False
+
 
 		# pick the central wavelength of this light curve's bandpass
 		if self.left is None or self.right is None:
@@ -85,6 +84,7 @@ class TLC(Talker):
 				name += ',E={0}'.format(self.epoch)
 		self.name = name
 
+		assert(self.bad.shape == self.flux.shape)
 		# assign the colors for this light curve
 		self.setupColors(color=color)
 
@@ -97,8 +97,11 @@ class TLC(Talker):
 		try:
 			assert(remake == False)
 			self.load(self.directory)
+			assert(self.bad.shape == self.flux.shape)
 			self.speak('initialized TLC from pre-saved file in {0}'.format(self.directory))
-		except:
+			haschanged = False
+		except (IOError,AssertionError):
+			self.speak("failed to load!")
 			# if possible, initialize from arrays; if not, load from scratch
 			if bjd is not None and flux is not None:
 				self.fromArrays(bjd, flux, uncertainty, **kwargs)
@@ -106,14 +109,26 @@ class TLC(Talker):
 			else:
 				self.fromFile(self.inputfilename)
 				self.speak('initialized TLC from {0}'.format(self.inputfilename))
+			haschanged = True
 
-			if self.isfake == False:
-				self.save(self.directory)
 
+		# make sure an array of "bad" values is defined
+		try:
+			self.bad
+		except AttributeError:
+			haschanged = True
+			self.speak("$$$$$$$$$ bad wasn't defined!")
+			try:
+				self.bad = kwargs['bad']
+			except KeyError:
+				self.bad = np.isfinite(self.flux) == False
+
+		if haschanged & (self.isfake == False):
+			self.save(self.directory)
 	@property
 	def effective_uncertainty(self):
-		return self.uncertainty*self.rescaling
-		
+		return self.uncertainty*self.rescaling*self.beta
+
 	def setupColors(self, color='eye', minimumuncertainty=0.001):
 		'''Method to set the line and point colots for this light curve.
 			color = 'eye': make colors as they would appear to the human eye
@@ -140,7 +155,7 @@ class TLC(Talker):
 				weights = np.minimum((minimumuncertainty/self.effective_uncertainty)**2, 1)
 				over = weights > 1
 				weights[over] = 1
-				rgba[:,3] = 0.5*weights
+				rgba[:,3] = 1.0*weights
 				self.colors['points'] = rgba
 
 	@property
@@ -181,6 +196,25 @@ class TLC(Talker):
 		ok = self.bad == False
 		return np.sum((self.residuals()/self.uncertainty)[ok]**2)
 
+	def bestBeta(self, timescale=15.0/60.0/24.0):
+		ok = self.ok
+		if np.sum(ok) > 0:
+			x = self.bjd[ok]
+			y = self.residuals()[ok]
+			err = self.uncertainty[ok]*self.rescaling
+
+			bx, by, be = zachopy.oned.binto(x=x, y=y, yuncertainty=err, binwidth=timescale, sem=True, robust=False)
+			fine = np.isfinite(by)
+			if np.sum(fine) > 1:
+				inflation = np.sqrt(np.mean(((by - 0)**2/be**2)[fine]))
+				inflation = np.maximum(inflation, 1)
+			else:
+				inflation = 1.0
+			assert(np.isfinite(inflation))
+		else:
+			inflation = 1.0
+		self.speak('the best beta for {0} is {1} atop the rescaling of {2}'.format(self.name, inflation, self.rescaling))
+		return inflation
 
 	def fromArrays(self, bjd, flux, uncertainty=None, **kwargs):
 		'''Populate a TLC from input arrays (used by transmission.py)'''
@@ -208,7 +242,7 @@ class TLC(Talker):
 		self.externalvariables = {}
 		for key, value in kwargs.iteritems():
 			if len(value) == len(self.bjd):
-				if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength' and key!= 'bad':
+				if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength':#and key!= 'bad':
 					self.externalvariables[key] = value
 				else:
 					self.speak( "   " +  key+  " was skipped")
@@ -222,7 +256,7 @@ class TLC(Talker):
 		for k in self.__dict__.keys():
 			if k != 'TM' and k!= 'TLC' and 'ax_' not in k and 'points_' not in k and 'line_' not in k and 'figure_' not in k:
 				tosave[k] = self.__dict__[k]
-				#self.speak( "      " + k)
+				self.speak( " saved " + k)
 				#if k == 'externalvariables':
 					#self.speak( "      " + k + ', including:')
 					#for evkey in tosave[k].keys():
@@ -240,7 +274,7 @@ class TLC(Talker):
 		self.speak('trying to load TLC from {0}'.format(filename))
 		loaded = np.load(filename)[()]
 		for key in loaded.keys():
-			#self.speak( '     ' + key)
+			self.speak( ' loaded ' + key)
 			self.__dict__[key] = loaded[key]
 
 

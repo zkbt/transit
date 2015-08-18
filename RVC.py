@@ -25,7 +25,6 @@ class RVC(Data):
 		# initialize the base color
 		self.color = color
 
-		self.jitter = 0.0
 
 		# define a dictionary of flags that can be used for bad data
 		self.flags = dict(outlier=1, saturation=2, custom=4)
@@ -33,6 +32,7 @@ class RVC(Data):
 
 		# keep track of the telescope (and epoch)
 		self.telescope=telescope
+		self.epoch=None
 
 		# is this a real light curve, or a fake one?
 		#  (e.g., one at high resolution for plotting)
@@ -76,6 +76,13 @@ class RVC(Data):
 		self.setupColors(color=color, minimumuncertainty=None)
 
 	@property
+	def jitter(self):
+		try:
+			return self.TM.star.jitter.value
+		except AttributeError:
+			return 0.0
+
+	@property
 	def effective_uncertainty(self):
 		return np.sqrt(self.uncertainty**2 + self.jitter**2)
 
@@ -100,6 +107,9 @@ class RVC(Data):
 
 			if self.isfake == False:
 				self.save(self.directory)
+
+	def residuals(self):
+		return self.rv - self.TM.stellar_rv()
 
 	def chisq(self):
 		ok = self.bad == False
