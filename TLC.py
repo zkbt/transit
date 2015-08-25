@@ -3,6 +3,7 @@ from Planet import Planet
 from Star import Star
 from TM import TM
 from PDF import PDF
+
 ppm = 1e6
 
 class TLC(Talker):
@@ -195,6 +196,20 @@ class TLC(Talker):
 	def chisq(self):
 		ok = self.bad == False
 		return np.sum((self.residuals()/self.uncertainty)[ok]**2)
+
+	def gp_compute(self, hyperparameters):
+		a, tau = np.exp(hyperparameters[:2])
+		self.gp = george.GP(a*george.kernels.Matern32Kernel(tau))
+		ok = self.bad == False
+		t = self.bjd[ok]
+		yerr = self.uncertainty[ok]*self.rescaling
+		self.gp.compute(t, yerr)
+
+	def gp_lnprob(self, hyperparameters):
+		'''Return the GP calculated likelihood of *this* light curve, assuming the (not hyper-)parameters have been set elsewhere.'''
+		self.gp_compute(hyperparameters)
+		ok = self.bad == False
+		return self.gp.lnlikelihood(self.residuals()[ok])
 
 	def bestBeta(self, timescale=15.0/60.0/24.0):
 		ok = self.ok

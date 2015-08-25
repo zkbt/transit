@@ -1,8 +1,4 @@
-from zachopy.Talker import Talker
-import matplotlib.pyplot as plt, numpy as np
-import zachopy.borrowed.mpfit.mpfit as mpfit
-import zachopy.oned
-import pemcee as emcee
+from imports import *
 import transit.PDF as PDF
 ##@profile
 
@@ -336,7 +332,7 @@ class Synthesizer(Talker):
             # if a parameter is outside its allowed range, then make the constraint very strong!
             inside = (p.value < p.limits[1]) & (p.value > p.limits[0])
             if inside == False:
-                constraints -= 1e6
+                constraints -= np.inf
 
         jitterconstraint = 0.0
         for rvc in self.rvcs:
