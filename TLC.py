@@ -199,7 +199,7 @@ class TLC(Talker):
 
 	def gp_compute(self, hyperparameters):
 		a, tau = np.exp(hyperparameters[:2])
-		self.gp = george.GP(a*george.kernels.Matern32Kernel(tau))
+		self.gp = george.GP(a*george.kernels.Matern32Kernel(tau), solver=george.HODLRSolver)
 		ok = self.bad == False
 		t = self.bjd[ok]
 		yerr = self.uncertainty[ok]*self.rescaling

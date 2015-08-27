@@ -300,6 +300,71 @@ class Synthesizer(Talker):
 
         return [(lcstatus | rvstatus), np.array(dev) ]
 
+    def gp_lnprob(self, p):
+
+        # update all the parameters inside the models, from the array
+        self.fromArray(p)
+
+        print self.parameters
+
+        # loop over the tlcs
+        lnlikelihood = 0
+        for tlc in self.tlcs:
+            lnlikelihood += tlc.gp_lnprob(hyperparameters)
+
+        lnlikelihood += self.lnprior
+
+
+    def lnprior(self):
+
+        lnp = 0
+
+        # incorporate density prior, if need be
+        if (self.densityprior is not None):
+            # pull out the prior parameters
+            central, width = self.densityprior
+
+            # make sure multiple transit models agree on the calculated density
+            if len(self.tms) > 1:
+                assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
+
+            # calculate the density prior
+            prior = (self.tms[0].planet.stellar_density - central)/width
+
+            # add it to the lnprior
+            lnp -= 0.5*prior**2
+
+        # incorporate a prior on the period, if need be
+        if (self.periodprior is not None):
+            # pull out the prior parameters
+            central, width = self.periodprior
+
+            # calculate prior
+            value = self.tms[0].planet.period.value
+            prior = (value - central)/width
+
+            # append it
+            lnp -= 0.5*prior**2
+
+        # incorporate a prior on t0, if need be
+        if (self.t0prior is not None):
+            # pull out the prior parameters
+            central, width = self.t0prior
+
+            # calculate prior
+            value = self.tms[0].planet.t0.value
+            prior = (value - central)/width
+
+            # append it
+            lnp -= 0.5*prior**2
+
+        if (self.eprior is not None):
+            # pull out the prior parameters
+            a, b = self.eprior
+            value = self.tms[0].planet.e
+            #####
+        return 0.5*density_prior**2
+
     ##@profile
     def lnprob(self, p):
         """Return the log posterior, calculated from the deviates function (which may have included some conjugate Gaussian priors.)"""
@@ -357,7 +422,8 @@ class Synthesizer(Talker):
                     len(self.rvcs))
 
 class Fit(Synthesizer):
-    def __init__(self, tlcs=[], rvcs=[], directory=None, **kwargs):
+    def __init__(self, tlcs=[], rvcs=[], directory=None, gp=False, **kwargs):
+        self.gp = gp
         Synthesizer.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
 
         if directory == None:
