@@ -110,7 +110,7 @@ class PDF(Talker):
 		np.save(filename, toexport)
 		self.speak('done!')
 
-	def triangle(self, keys=None, truths=None, quantiles=[0.16, 0.5, 0.84], title=None,  **kwargs):
+	def triangle(self, keys=None, truths=None, quantiles=[0.16, 0.5, 0.84], title=None, dpi=70, **kwargs):
 		data = []
 
 		for k in keys:
@@ -131,8 +131,9 @@ class PDF(Talker):
 								quantiles=quantiles,
 								title_args={"fontsize": 12},
 								levels = 1.0 - np.exp(-0.5 * np.array([1.0,2.0]) ** 2),
-								 **kwargs)
-
+								**kwargs)
+		figure.set_dpi(dpi)
+		plt.draw()
 		if title is not None:
 			figure.gca().annotate(title, xy=(0.5, 1.0), xycoords="figure fraction",
                       xytext=(0, -5), textcoords="offset points",

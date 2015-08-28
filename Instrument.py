@@ -26,7 +26,11 @@ class Instrument(Parameters):
 			# include (t)^power terms for time (CURRENTLY SET UP ONLY FOR SINGLE TRANSITS!)
 			for power in np.arange(torder)+1:
 				dict['t_tothe{0:1d}'.format(power)] = 0.0
-		except:
+
+			# include other custom instrument parameters
+			for k in kwargs.keys():
+				dict[k] = kwargs[k]
+		except AttributeError:
 			pass
 
 

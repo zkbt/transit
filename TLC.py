@@ -175,6 +175,8 @@ class TLC(Talker):
 		colors[self.bad,3]*0.2
 		plt.scatter(x[self.bad], self.corrected()[self.bad], color=colors[self.bad], marker='x', s=50)
 
+
+
 	def restrictToNight(self, night=None):
 		'''Trim to data from only a particular night.'''
 
@@ -199,17 +201,32 @@ class TLC(Talker):
 
 	def gp_compute(self, hyperparameters):
 		a, tau = np.exp(hyperparameters[:2])
-		self.gp = george.GP(a*george.kernels.Matern32Kernel(tau), solver=george.HODLRSolver)
+
+		#self.gp = george.GP(a*george.kernels.ExpSquaredKernel(tau))#, solver=george.HODLRSolver)
+		self.gp = george.GP(a*george.kernels.Matern32Kernel(tau))#, solver=george.HODLRSolver)
 		ok = self.bad == False
 		t = self.bjd[ok]
 		yerr = self.uncertainty[ok]*self.rescaling
+		before = time.clock()
 		self.gp.compute(t, yerr)
+		after = time.clock()
 
-	def gp_lnprob(self, hyperparameters):
+		self.speak('computed kernel {0} for {1} data points in {2} microseconds'.format(self.gp, len(t), 1e6*(after-before)))
+
+	def gp_lnprob(self):
 		'''Return the GP calculated likelihood of *this* light curve, assuming the (not hyper-)parameters have been set elsewhere.'''
+
+		#WHAT ER THE HYPERPAREMETES?
+		hyperparameters = self.TM.instrument.gplna.value, self.TM.instrument.gplntau.value
 		self.gp_compute(hyperparameters)
 		ok = self.bad == False
-		return self.gp.lnlikelihood(self.residuals()[ok])
+
+		before = time.clock()
+		lnp = self.gp.lnlikelihood(self.residuals()[ok], quiet=True)
+		after = time.clock()
+
+		self.speak('computed likelihood for {0} data points in {1} microseconds'.format(np.sum(ok), 1e6*(after-before)))
+		return lnp
 
 	def bestBeta(self, timescale=15.0/60.0/24.0):
 		ok = self.ok
@@ -273,9 +290,9 @@ class TLC(Talker):
 				tosave[k] = self.__dict__[k]
 				self.speak( " saved " + k)
 				#if k == 'externalvariables':
-					#self.speak( "      " + k + ', including:')
+					#self.speak( "	  " + k + ', including:')
 					#for evkey in tosave[k].keys():
-						#self.speak( "          " + evkey)
+						#self.speak( "		  " + evkey)
 
 		zachopy.utils.mkdir(directory)
 		filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
@@ -478,7 +495,7 @@ class TLC(Talker):
 
 		# create smoothed TLC structures, so the modeling will work
 		self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 10000))
-		self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 10000))
+		self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 1000))
 
 
 
@@ -684,6 +701,52 @@ class TLC(Talker):
 		self.TM.TLC = self
 		self.TLC = self
 		self.TM.TM = self.TM
+
+	def gp_points(self):
+		ok = self.ok
+
+		# a dictionary of ok data points, in various stages of correction
+		d = {}
+		d['bjd'] = self.bjd[ok]
+		d['t'] = self.TM.planet.timefrommidtransit(self.bjd)[ok]
+		d['raw'] = self.flux[ok]
+		d['cleaned'] = self.corrected()[ok]
+		d['residuals'] = self.residuals()[ok]
+
+		lnp = tlc.gp_lnprob()
+		mean_wiggle = tlc.gp.predict(d['residuals'], d['bjd'], mean_only=True)
+		d['cleanedfromgp'] = d['cleaned'] - mean_wiggle
+		d['residualsfromgp'] = d['residuals'] - mean_wiggle
+		return d
+
+	def gp_lines(self, smooth, mean=True):
+
+		# make sure a smooth fake TLC is set up
+		try:
+			self.smoothed
+		except AttributeError:
+			self.smoothed = self.fake(np.linspace(np.min(self.bjd), np.max(self.bjd), 1000))
+
+		# a dictionary of ok data points, in various stages of correction
+		d = {}
+		d['bjd'] = self.smoothed.bjd
+		d['t'] = self.TM.planet.timefrommidtransit(d['bjd'])
+		d['residualsfromgp'] = np.zeros_like(d['bjd'])
+		d['cleanedfromgp'] = self.TM.planet_model(tlc=self.smoothed)
+
+		lnp = tlc.gp_lnprob()
+		if mean:
+			wiggle, cov = tlc.gp.predict(self.residuals()[ok], d['bjd'])
+			i = np.arange(len(mean_wiggle))
+			d['residualsstd'] = np.sqrt(cov[i,i])
+		else:
+			wiggle = tlc.gp.sample_conditional(self.residuals()[ok], d['bjd'])
+
+		d['residuals'] = wiggle
+		d['cleaned'] = d['cleanedfromgp'] + wiggle
+		d['raw'] = self.TM.model(tlc=self.smoothed) + wiggle
+
+		return d
 
 	def splitIntoEpochs(self, planet=None, buffer=5, thresholdInTransit=1, thresholdOutOfTransit=1):
 		assert(planet is not None)

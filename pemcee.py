@@ -38,10 +38,15 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
     def addLabels(self, labels):
         self.labels = labels
 
-    def setupHistoryPlot(self):
+    def setupHistoryPlot(self, nmax=6):
 
-        self.figure = plt.figure('emcee parameter history')
-        self.nrows = np.minimum(self.dim, 6)
+        if nmax is None:
+            self.nrows = self.dim
+        else:
+            self.nrows = np.minimum(self.dim, nmax)
+
+        self.figure = plt.figure('emcee parameter history', figsize=(4,2*self.nrows+4))
+
         hr = np.ones(self.nrows+1)
         hr[-1] *=3
         self.gs = plt.matplotlib.gridspec.GridSpec(self.nrows+1, 1, hspace=0.1, wspace=0, height_ratios=hr, left=0.3)
@@ -60,20 +65,22 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
             self.ax_history[key] = ax
 
 
-    def HistoryPlot(self, limits):
+    def HistoryPlot(self, limits, nmax=6):
         try:
+            plt.figure('emcee parameter history')
             self.ax_history
         except:
-            self.setupHistoryPlot()
+            self.setupHistoryPlot(nmax=nmax)
 
         limits[1] = min(limits[1],self.chain.shape[1]-1)
+
         kw = dict(color='black', alpha=0.1, linewidth=1)
-        x = np.arange(limits[0], limits[1],1)
+        x = np.arange(limits[0], limits[1]+1,1)
         for walker in range(np.minimum(self.k, 50)):
-            self.ax_history['lnp'].plot(x,self.lnprobability[walker,limits[0]:limits[1]], **kw)
+            self.ax_history['lnp'].plot(x,self.lnprobability[walker,limits[0]:limits[1]+1], **kw)
             for p in range(self.nrows):
                 key = self.labels[-p]
-                self.ax_history[key].plot(x, self.chain[walker,limits[0]:limits[1],p], **kw)
+                self.ax_history[key].plot(x, self.chain[walker,limits[0]:limits[1]+1,p], **kw)
                 if walker == 0:
                     self.ax_history[key].set_ylim(*np.percentile(self.flatchain[:,p], [1,99]))
         self.ax_history['lnp'].set_xlim(0, limits[1])

@@ -1,5 +1,6 @@
 from imports import *
 import transit.PDF as PDF
+import transit
 ##@profile
 
 
@@ -303,21 +304,38 @@ class Synthesizer(Talker):
     def gp_lnprob(self, p):
 
         # update all the parameters inside the models, from the array
+        #   these include all hyperparameters too
         self.fromArray(p)
 
-        print self.parameters
+        for p in self.parameters:
+            self.speak('{0} = {1}'.format(p['parameter'][0].name, p['parameter'][0].value))
+
+        lnprior = self.lnprior()
+        if np.isfinite(lnprior) == False:
+            return -np.inf
 
         # loop over the tlcs
         lnlikelihood = 0
         for tlc in self.tlcs:
-            lnlikelihood += tlc.gp_lnprob(hyperparameters)
+            # the TLC should already know what its hyperparameters are
+            if np.sum(tlc.ok) > 0:
+                lnlikelihood += tlc.gp_lnprob()
 
-        lnlikelihood += self.lnprior
+        lnprob = lnprior + lnlikelihood
+        self.speak('lnlikelihood = {lnlikelihood:10.1f}, lnprior = {lnprior:10.1f}, lnprob = {lnprob:10.1f}'.format(**locals()))
 
+        return lnprob
 
     def lnprior(self):
 
         lnp = 0
+
+        for p in self.parameters:
+            par = p['parameter'][0]
+            if par.value < par.limits[0]:
+                return -np.inf
+            if par.value > par.limits[1]:
+                return -np.inf
 
         # incorporate density prior, if need be
         if (self.densityprior is not None):
@@ -329,10 +347,10 @@ class Synthesizer(Talker):
                 assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
 
             # calculate the density prior
-            prior = (self.tms[0].planet.stellar_density - central)/width
+            prior = -0.5*((self.tms[0].planet.stellar_density - central)/width)**2
 
             # add it to the lnprior
-            lnp -= 0.5*prior**2
+            lnp +=  prior
 
         # incorporate a prior on the period, if need be
         if (self.periodprior is not None):
@@ -341,10 +359,10 @@ class Synthesizer(Talker):
 
             # calculate prior
             value = self.tms[0].planet.period.value
-            prior = (value - central)/width
+            prior = -0.5*((value - central)/width)**2
 
             # append it
-            lnp -= 0.5*prior**2
+            lnp += prior
 
         # incorporate a prior on t0, if need be
         if (self.t0prior is not None):
@@ -353,22 +371,27 @@ class Synthesizer(Talker):
 
             # calculate prior
             value = self.tms[0].planet.t0.value
-            prior = (value - central)/width
+            prior = -0.5*((value - central)/width)**2
 
             # append it
-            lnp -= 0.5*prior**2
+            lnp += prior
 
         if (self.eprior is not None):
             # pull out the prior parameters
             a, b = self.eprior
             value = self.tms[0].planet.e
             #####
-        return 0.5*density_prior**2
+
+            prior = np.ln(value**(a-1)*(1-value)**(b-1)/scipy.special.beta(a,b))
+            lnp += prior
+        return lnp
 
     ##@profile
     def lnprob(self, p):
         """Return the log posterior, calculated from the deviates function (which may have included some conjugate Gaussian priors.)"""
 
+        if self.gp:
+            return self.gp_lnprob(p)
 
         chisq = np.sum(self.deviates(p)[-1]**2)
         #N = np.sum(self.TLC.bad == 0)
@@ -513,8 +536,9 @@ class Fit(Synthesizer):
             tlc.rescaling = np.maximum(np.sqrt(reduced_chisq), 1)
             self.speak('rescaling original errors by {0} for next fit'.format(tlc.rescaling))
 
-            tlc.beta = tlc.bestBeta()
-            self.speak('set the beta to be {0} for next fit'.format(tlc.beta))
+            if self.gp == False:
+                tlc.beta = tlc.bestBeta()
+                self.speak('set the beta to be {0} for next fit'.format(tlc.beta))
 
 
 class LM(Fit):
@@ -523,7 +547,7 @@ class LM(Fit):
         self.directory = self.directory + 'lm/'
         zachopy.utils.mkdir(self.directory)
 
-    def fit(self, plot=False, quiet=False, firstpass=True, secondpass=False, remake=False, densityprior=None, periodprior=None, t0prior=None, **kwargs):
+    def fit(self, plot=False, quiet=False, firstpass=True, secondpass=False, remake=False, densityprior=None, periodprior=None, t0prior=None, eprior=None, **kwargs):
         '''Use LM (mpfit) to find the maximum probability parameters, and a covariance matrix.'''
 
         try:
@@ -536,6 +560,7 @@ class LM(Fit):
         self.densityprior=densityprior
         self.periodprior=periodprior
         self.t0prior=t0prior
+        self.eprior=eprior
 
 
         self.speak('performing a fast LM fit')
@@ -613,13 +638,14 @@ class MCMC(Fit):
 
     def fit(self,
         nburnin=1000, ninference=1000, nwalkers=500,
-        broad=True, ldpriors=True, fromcovariance=True, densityprior=None, periodprior=None, t0prior=None,
+        broad=True, ldpriors=True, fromcovariance=True, densityprior=None, periodprior=None, t0prior=None, eprior=None,
         plot=True, interactive=False, remake=False, updates=10, **kwargs):
         '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
 
         self.densityprior=densityprior
         self.periodprior=periodprior
         self.t0prior=t0prior
+        self.eprior=eprior
 
         self.speak('running an MCMC fit')
         try:
@@ -631,11 +657,22 @@ class MCMC(Fit):
 
         #if fromcovariance:
         if len(self.tlcs) > 0:    # create a LM fit to initialize the outlier rejection and rescaling
-            self.lm = LM(self.tlcs, directory=self.directory)
+            if self.gp:
+                for tm in self.tms:
+                    tm.instrument.gplna.fixed = True
+                    tm.instrument.gplntau.fixed = True
+
+            self.lm = LM(self.tlcs, directory=self.directory, gp=False)
             # set LM fit's (possibly linked) parameters to be same as this one
             self.lm.parameters = self.parameters
             # run (or load) the fit
-            self.lm.fit(remake=remake, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior)
+            self.lm.fit(remake=remake, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior, quiet=False)
+            if self.gp:
+                for tm in self.tms:
+                    tm.instrument.gplna.fixed = False
+                    tm.instrument.gplntau.fixed = False
+
+            a = self.input('parameters okay?')
 
         # pull the parameter array out of the list of dictionaries
         p0, parinfo = self.toArray()
@@ -679,8 +716,50 @@ class MCMC(Fit):
             pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin, updates=updates)
 
             if interactive:
-                self.sampler.HistoryPlot([count, count + nburnin])
-                plt.draw()
+                plot = True
+                output = None
+                plt.ion()
+
+            if plot:
+                d = self.directory + 'status/'
+                zachopy.utils.mkdir(d)
+                output = d + '{0:03.0f}'.format(count/nburnin)
+                plt.ioff()
+                save = True
+
+            if plot:
+                # plot the chains
+
+                self.sampler.HistoryPlot([count, count + nburnin],nmax=None)
+                if save:
+                    plt.savefig(output + '_parametertrace.pdf')
+
+                # plot the PDF
+                samples = {}
+                for i in range(nparameters):
+                    samples[self.names[i]] = self.sampler.flatchain[:,i]
+                samples['lnprob'] = self.sampler.flatlnprobability[:]
+
+                #if save:
+                    #self.pdf = PDF.Sampled(samples=samples)
+                    #self.pdf.printParameters()
+                    #self.pdf.triangle(self.pdf.names)
+                    #self.pdf.triangle(keys=self.pdf.names, title=output,
+                            #plot_contours=True, plot_datapoints=False, plot_density=False,
+                            #alpha=0.5, show_titles=False)
+                    #plt.savefig(output + '_parameterpdf.pdf')
+
+                # set the parameter to their MAP values
+                best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
+                self.fromArray(best)
+
+                # plot
+                for tlc in self.tlcs:
+                    transit.QuicklookTransitPlot(tlc=tlc)
+                    if save:
+                        plt.savefig(output + '_lightcurves_{0}.pdf'.format(tlc.name.replace(',','_')))
+
+
 
             if interactive:
                 answer = self.input('Do you think we have burned in?')
@@ -707,7 +786,6 @@ class MCMC(Fit):
         for i in range(nparameters):
             samples[self.names[i]] = self.sampler.flatchain[:,i]
         samples['lnprob'] = self.sampler.flatlnprobability[:]
-
 
         # set the parameter to their MAP values
         best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]

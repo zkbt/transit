@@ -10,7 +10,7 @@ class IndividualPlots(Plot):
     def identifier(self, tlc):
         return str(tlc)
 
-    def setup(self, tlcs=None, stretch=2, epochs=[-19, -11,  0, 11], telescopes=['MEarth13','MEarth12','MEarth14', 'MEarth18', 'TRAPPIST', 'PISCOg', 'PISCOi'], **kwargs):
+    def setup(self, tlcs=None, stretch=2, epochs=[-19, -11,  0, 11], telescopes=['MEarth13','MEarth12','MEarth14', 'MEarth18', 'TRAPPIST', 'PISCOg', 'PISCOi'], dpi=30, **kwargs):
         # set up the axes for the plot
         self.tlcs = tlcs
         if telescopes is None:
@@ -24,7 +24,7 @@ class IndividualPlots(Plot):
         self.ncols = len(self.epochs)#np.ceil(np.sqrt(self.npanels)).astype(np.int)/2
         self.nrows = len(self.telescopes)#np.ceil(self.npanels/np.float(self.ncols)).astype(np.int)
 
-        self.figure = plt.figure('light curves', figsize=(self.ncols*stretch*3, self.nrows*3), dpi=50)
+        self.figure = plt.figure('light curves', figsize=(self.ncols*stretch*3, self.nrows*3), dpi=dpi)
         self.gs = plt.matplotlib.gridspec.GridSpec(self.nrows, self.ncols, hspace=0.1, wspace=0.1, bottom=0.1, left=0.1, right=0.9, top=0.9)
 
         # define all the axes
@@ -52,7 +52,7 @@ class IndividualPlots(Plot):
                 self.axes[ident].set_xlabel('Time from Mid-Transit (days)')
 
 
-    def plot(self, tlcs, xlim=(-.075, 0.075), ylim=(0.99, 1.005), binsize=6.0/24.0/60.0, title=''):
+    def plot(self, tlcs, xlim=(-.075, 0.075), ylim=(0.99, 1.005), binsize=6.0/24.0/60.0, title='',  **kwargs):
 
         done = {}
         for tlc in self.tlcs:
@@ -146,4 +146,7 @@ class IndividualPlots(Plot):
             plt.sca(a)
             tm.plotPhased(linewidth=3,  alpha=0.5, color='black')'''
 
-        plt.savefig('individual_lightcurves.pdf')
+        '''if pdf:
+            plt.savefig('individual_lightcurves.pdf')
+        else:
+            plt.draw()'''
