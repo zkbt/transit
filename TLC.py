@@ -713,14 +713,14 @@ class TLC(Talker):
 		d['cleaned'] = self.corrected()[ok]
 		d['residuals'] = self.residuals()[ok]
 
-		lnp = tlc.gp_lnprob()
-		mean_wiggle = tlc.gp.predict(d['residuals'], d['bjd'], mean_only=True)
+		lnp = self.gp_lnprob()
+		mean_wiggle = self.gp.predict(d['residuals'], d['bjd'], mean_only=True)
 		d['cleanedfromgp'] = d['cleaned'] - mean_wiggle
 		d['residualsfromgp'] = d['residuals'] - mean_wiggle
 		return d
 
-	def gp_lines(self, smooth, mean=True):
-
+	def gp_lines(self, mean=True):
+		'''if mean=True, will return the mean of the GP prediction; otherwise, will sample from it'''
 		# make sure a smooth fake TLC is set up
 		try:
 			self.smoothed
@@ -734,13 +734,14 @@ class TLC(Talker):
 		d['residualsfromgp'] = np.zeros_like(d['bjd'])
 		d['cleanedfromgp'] = self.TM.planet_model(tlc=self.smoothed)
 
-		lnp = tlc.gp_lnprob()
+		ok = self.ok
+		lnp = self.gp_lnprob()
 		if mean:
-			wiggle, cov = tlc.gp.predict(self.residuals()[ok], d['bjd'])
-			i = np.arange(len(mean_wiggle))
+			wiggle, cov = self.gp.predict(self.residuals()[ok], d['bjd'])
+			i = np.arange(len(wiggle))
 			d['residualsstd'] = np.sqrt(cov[i,i])
 		else:
-			wiggle = tlc.gp.sample_conditional(self.residuals()[ok], d['bjd'])
+			wiggle = self.gp.sample_conditional(self.residuals()[ok], d['bjd'])
 
 		d['residuals'] = wiggle
 		d['cleaned'] = d['cleanedfromgp'] + wiggle

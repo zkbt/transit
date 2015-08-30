@@ -753,17 +753,23 @@ class MCMC(Fit):
                 best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
                 self.fromArray(best)
 
+                transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
+                if save:
+                    plt.savefig(output + '_everything.pdf')
+
                 # plot
-                for tlc in self.tlcs:
-                    transit.QuicklookTransitPlot(tlc=tlc)
-                    if save:
-                        plt.savefig(output + '_lightcurves_{0}.pdf'.format(tlc.name.replace(',','_')))
+                #for tlc in self.tlcs:
+                #    transit.QuicklookTransitPlot(tlc=tlc)
+                #    if save:
+                #        plt.savefig(output + '_lightcurves_{0}.pdf'.format(tlc.name.replace(',','_')))
 
 
 
             if interactive:
-                answer = self.input('Do you think we have burned in?')
-                if 'y' in answer:
+                #answer = self.input('Do you think we have burned in?')
+                #if 'y' in answer:
+                #    burnt = True
+                if count > 500:
                     burnt = True
             else:
                 burnt = True

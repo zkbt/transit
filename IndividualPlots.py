@@ -36,8 +36,11 @@ class IndividualPlots(Plot):
             row = (self.telescopes == tlc.telescope).nonzero()[0]
             col = (self.epochs == tlc.epoch).nonzero()[0]
 
-            if len(col) == 0:
+            if (len(col) == 0) or (len(row) == 0):
                 continue
+            else:
+                row = row[0]
+                col = col[0]
 
             self.axes[ident] = plt.subplot(self.gs[row, col], sharex=share, sharey=share)
             share = self.axes[ident]
@@ -52,26 +55,38 @@ class IndividualPlots(Plot):
                 self.axes[ident].set_xlabel('Time from Mid-Transit (days)')
 
 
-    def plot(self, tlcs, xlim=(-.075, 0.075), ylim=(0.99, 1.005), binsize=6.0/24.0/60.0, title='',  **kwargs):
-
+    def plot(self, tlcs, synthesizer=None, xlim=(-.075, 0.075), ylim=(0.99, 1.005), binsize=6.0/24.0/60.0, title='',  **kwargs):
+        self.synthesizer=synthesizer
         done = {}
+        self.chain = synthesizer.sampler.flatchain
+        self.best = self.chain[np.argmax(synthesizer.sampler.flatlnprobability)]
+        self.synthesizer.fromArray(self.best)
+
+        # first plot the central value of the fit and the GP
         for tlc in self.tlcs:
+            # select this particular light curve
             key = self.identifier(tlc)
+
+            # if a panel hasn't be set; skip it!
             try:
                 plt.sca(self.axes[key])
             except KeyError:
                 continue
-            ok = tlc.bad == False
-            tm = tlc.TM
-            tlc.plot(model=tm)
-            try:
+
+            '''try:
                 done[key]
             except KeyError:
                 tlc.setupSmooth()
                 tm.plotPhased(linewidth=3,  alpha=0.5, color='black')
                 done[key] = True
+            '''
 
-            plotbinned(tm.planet.timefrommidtransit(tlc.bjd)[ok], tlc.corrected()[ok], uncertainty=tlc.uncertainty[ok], bin=binsize,   alpha=0.5)
+
+            points = tlc.gp_points()
+            plt.plot(points['t'], points['cleaned'], color=tlc.color, marker='o', linewidth=0, alpha=0.25)
+
+            lines = tlc.gp_lines(mean=True)
+            plt.plot(lines['t'], lines['cleaned'], linewidth=2, alpha=1, color='black')
 
             if tlc.telescope == self.telescopes[0]:
                 self.axes[key].xaxis.set_label_position("top")
@@ -80,6 +95,32 @@ class IndividualPlots(Plot):
             if tlc.epoch == self.epochs[-1]:
                 self.axes[key].yaxis.set_label_position("right")
                 self.axes[key].set_ylabel('{0}'.format(tlc.telescope))
+
+        colors = {2:'blue', 3:'green'}
+        chain = synthesizer.sampler.chain
+        n, walkers, m = chain.shape
+        for j in [2,3]:
+            quartile = n*j/4
+            for i in range(5):
+                which = int(np.random.uniform(quartile,quartile+n/4))
+                walker = int(np.random.uniform(0, walkers))
+                new = chain[which, walker,:]
+                self.synthesizer.fromArray(new)
+                lines = tlc.gp_lines(mean=True)
+                for tlc in self.tlcs:
+                    # select this particular light curve
+                    key = self.identifier(tlc)
+
+                    # if a panel hasn't be set; skip it!
+                    try:
+                        plt.sca(self.axes[key])
+                    except KeyError:
+                        continue
+
+                    lines = tlc.gp_lines(mean=True)
+                    plt.plot(lines['t'], lines['cleaned'], linewidth=1, alpha=0.5, color=colors[j])
+
+
         self.axes[key].set_xlim(*xlim)
         self.axes[key].set_ylim(*ylim)
 
