@@ -104,11 +104,13 @@ class Synthesizer(Talker):
         parinfo = [p['parameter'][0].parinfo for p in self.parameters]
         return par, parinfo
 
-    def fromArray(self, a):
+    def fromArray(self, a, verbose=False):
         assert(len(a) == self.m)
         for i in range(self.m):
             for p in self.parameters[i]['parameter']:
                 p.value = a[i]
+                if verbose:
+                    self.speak('{0} = {1}'.format(p.name, p.value))
 
 
     def tieAcrossEpochs(self, name):
@@ -307,8 +309,8 @@ class Synthesizer(Talker):
         #   these include all hyperparameters too
         self.fromArray(p)
 
-        for p in self.parameters:
-            self.speak('{0} = {1}'.format(p['parameter'][0].name, p['parameter'][0].value))
+        #for p in self.parameters:
+        #    self.speak('{0} = {1}'.format(p['parameter'][0].name, p['parameter'][0].value))
 
         lnprior = self.lnprior()
         if np.isfinite(lnprior) == False:
@@ -322,7 +324,7 @@ class Synthesizer(Talker):
                 lnlikelihood += tlc.gp_lnprob()
 
         lnprob = lnprior + lnlikelihood
-        self.speak('lnlikelihood = {lnlikelihood:10.1f}, lnprior = {lnprior:10.1f}, lnprob = {lnprob:10.1f}'.format(**locals()))
+        #self.speak('lnlikelihood = {lnlikelihood:10.1f}, lnprior = {lnprior:10.1f}, lnprob = {lnprob:10.1f}'.format(**locals()))
 
         return lnprob
 
@@ -637,16 +639,18 @@ class MCMC(Fit):
         zachopy.utils.mkdir(self.directory)
 
     def fit(self,
-        nburnin=1000, ninference=1000, nwalkers=500,
+        nburnin=1000, ninference=1000, nwalkers=500, nleap=20,
         broad=True, ldpriors=True, fromcovariance=True, densityprior=None, periodprior=None, t0prior=None, eprior=None,
         plot=True, interactive=False, remake=False, updates=10, **kwargs):
         '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
 
+        # keep track of the priors
         self.densityprior=densityprior
         self.periodprior=periodprior
         self.t0prior=t0prior
         self.eprior=eprior
 
+        # either load the MCMC fit, or run it from scratch
         self.speak('running an MCMC fit')
         try:
             assert(remake==False)
@@ -655,24 +659,30 @@ class MCMC(Fit):
         except IOError:
             self.speak('could not load this MCMC fit, remaking it from scratch')
 
-        #if fromcovariance:
+        # do an LM minization to clip outliers and rescale uncertainties
         if len(self.tlcs) > 0:    # create a LM fit to initialize the outlier rejection and rescaling
+
+            # ignore the GP in the LM fit
             if self.gp:
                 for tm in self.tms:
                     tm.instrument.gplna.fixed = True
                     tm.instrument.gplntau.fixed = True
 
+            # set up the LM fit
             self.lm = LM(self.tlcs, directory=self.directory, gp=False)
             # set LM fit's (possibly linked) parameters to be same as this one
             self.lm.parameters = self.parameters
             # run (or load) the fit
             self.lm.fit(remake=remake, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior, quiet=False)
+
+            # take care of the kludge that left the GP out of the fit
             if self.gp:
                 for tm in self.tms:
                     tm.instrument.gplna.fixed = False
                     tm.instrument.gplntau.fixed = False
 
-            a = self.input('parameters okay?')
+            #if interactive:
+            #    assert(('n' in self.input('parameters okay?')) == False)
 
         # pull the parameter array out of the list of dictionaries
         p0, parinfo = self.toArray()
@@ -708,98 +718,110 @@ class MCMC(Fit):
         self.sampler.addLabels(self.names)
 
         # run a burn in step, and then reset
-        burnt = False
+        done, saved = False, False
+        burnt, inferred = False, False
         count = 0
         pos = initialwalkers
-        while burnt == False:
-            self.speak("running {0} burn-in steps, with {1} walkers.".format(nburnin, nwalkers))
-            pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nburnin, updates=updates)
+        index = 0
+        # run the burn-in of the chain, creating plots along the way
+        while (done and saved) == False:
 
-            if interactive:
-                plot = True
-                output = None
-                plt.ion()
+            # run the chain for one "leap"
+            if done == False:
+                self.speak("running {0}-{1} of {2} burn-in steps, with {3} walkers".format(count, count+nleap, nburnin, nwalkers))
+                #pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nleap, updates=updates)
+                before = time.clock()
+                pos, prob, state = self.sampler.run_mcmc(pos, nleap)
+                after = time.clock()
+                self.speak('it took {0} seconds'.format(after-before))
 
+            if done:
+                plot=True
+                self.speak('making plots and saving final chains')
+
+            # output some summary plots
             if plot:
-                d = self.directory + 'status/'
+                # set up where plots should be saved
+                if done:
+                    d = self.directory + 'final/'
+                    output = d + '{0:03.0f}_final'.format(index)
+                else:
+                    d = self.directory + 'status/'
+                    if burnt:
+                        output = d + '{0:03.0f}_inference'.format(index)
+                    else:
+                        output = d + '{0:03.0f}_burnin'.format(index)
+
                 zachopy.utils.mkdir(d)
-                output = d + '{0:03.0f}'.format(count/nburnin)
                 plt.ioff()
                 save = True
 
-            if plot:
-                # plot the chains
-
-                self.sampler.HistoryPlot([count, count + nburnin],nmax=None)
+                # plot the trace of the parameters
+                self.speak('creating plot of the parameter traces')
+                before = time.clock()
+                self.sampler.HistoryPlot([0, count + nleap],nmax=None)
                 if save:
-                    plt.savefig(output + '_parametertrace.pdf')
+                    plt.savefig(output + '_parametertrace.png')
+                after = time.clock()
+                self.speak('it took {0} seconds'.format(after-before))
 
-                # plot the PDF
+                self.speak('creating a PDF of the parameters')
+                before = time.clock()
                 samples = {}
+                nwalkers, nsteps, ndim = self.sampler.chain.shape
+                if burnt:
+                    which = nburnin + np.arange(nsteps - nburnin)
+                    if done:
+                        which = np.arange(ninference) + nburnin
+                else:
+                    which = nsteps/2 + np.arange(nsteps/2)
+
                 for i in range(nparameters):
-                    samples[self.names[i]] = self.sampler.flatchain[:,i]
-                samples['lnprob'] = self.sampler.flatlnprobability[:]
+                    samples[self.names[i]] = self.sampler.chain[:,which,i]
+                samples['lnprob'] = self.sampler.lnprobability[:,which]
+                self.pdf = PDF.Sampled(samples=samples, summarize=done)
+                after = time.clock()
+                self.speak('it took {0} seconds'.format(after-before))
 
-                #if save:
-                    #self.pdf = PDF.Sampled(samples=samples)
-                    #self.pdf.printParameters()
-                    #self.pdf.triangle(self.pdf.names)
-                    #self.pdf.triangle(keys=self.pdf.names, title=output,
-                            #plot_contours=True, plot_datapoints=False, plot_density=False,
-                            #alpha=0.5, show_titles=False)
-                    #plt.savefig(output + '_parameterpdf.pdf')
+                if done:
+                    self.pdf.printParameters()
+                    self.save()
 
-                # set the parameter to their MAP values
-                best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
-                self.fromArray(best)
+                self.speak('creating a plot of the PDF')
+                before = time.clock()
+                self.pdf.triangle(keys=self.pdf.names, title=output,
+                    plot_contours=True, plot_datapoints=False, plot_density=False,
+                    alpha=0.5, show_titles=False)
+                plt.savefig(output + '_parameterpdf.pdf')
+                after = time.clock()
+                self.speak('it took {0} seconds'.format(after-before))
 
+                #
+                #best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
+                #self.fromArray(best)
+
+                self.speak('creating a plot of the light curves that have been fitted')
                 transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
                 if save:
                     plt.savefig(output + '_everything.pdf')
+                after = time.clock()
+                self.speak('it took {0} seconds'.format(after-before))
 
                 # plot
-                #for tlc in self.tlcs:
-                #    transit.QuicklookTransitPlot(tlc=tlc)
-                #    if save:
-                #        plt.savefig(output + '_lightcurves_{0}.pdf'.format(tlc.name.replace(',','_')))
+                '''for tlc in self.tlcs:
+                    transit.QuicklookTransitPlot(tlc=tlc)
+                    if save:
+                        plt.savefig(output + '_lightcurves_{0}.pdf'.format(tlc.name.replace(',','_')))
+                '''
+                if done:
+                    saved = True
 
-
-
-            if interactive:
-                #answer = self.input('Do you think we have burned in?')
-                #if 'y' in answer:
-                #    burnt = True
-                if count > 500:
-                    burnt = True
-            else:
-                burnt = True
-
-            count += nburnin
-
-        # after the burn-in, reset the chain
-        self.sampler.reset()
-
-        # loop until satisfied with the inference samples
-        self.speak('running for inference, using {0} steps and {1} walkers'.format(ninference, nwalkers))
-
-        # start with the last set of walker positions from the burn in and run for realsies
-        self.sampler.run_mcmc_with_progress(pos, ninference)
-
-        # trim the chain to the okay values (should this be necessary?)
-        # ok = self.sampler.flatlnprobability > (np.max(self.sampler.flatlnprobability) - 100)
-
-        samples = {}
-        for i in range(nparameters):
-            samples[self.names[i]] = self.sampler.flatchain[:,i]
-        samples['lnprob'] = self.sampler.flatlnprobability[:]
+            count += nleap
+            index += 1
+            burnt = count >= nburnin
+            inferred = count >= (nburnin + ninference)
+            done = burnt and inferred
 
         # set the parameter to their MAP values
         best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
         self.fromArray(best)
-
-        self.pdf = PDF.Sampled(samples=samples)
-        self.pdf.printParameters()
-        self.save()
-
-            #if plot:
-            #    self.model.TLC.DiagnosticsPlots(directory=self.directory)

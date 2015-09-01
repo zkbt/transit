@@ -29,6 +29,7 @@ class IndividualPlots(Plot):
 
         # define all the axes
         self.axes = {}
+
         share = None
         for i in range(len(self.tlcs)):
             tlc = self.tlcs[i]
@@ -61,7 +62,7 @@ class IndividualPlots(Plot):
         self.chain = synthesizer.sampler.flatchain
         self.best = self.chain[np.argmax(synthesizer.sampler.flatlnprobability)]
         self.synthesizer.fromArray(self.best)
-
+        bestdeterministic = {}
         # first plot the central value of the fit and the GP
         for tlc in self.tlcs:
             # select this particular light curve
@@ -73,20 +74,24 @@ class IndividualPlots(Plot):
             except KeyError:
                 continue
 
-            '''try:
-                done[key]
-            except KeyError:
-                tlc.setupSmooth()
-                tm.plotPhased(linewidth=3,  alpha=0.5, color='black')
-                done[key] = True
-            '''
-
-
-            points = tlc.gp_points()
+            if self.synthesizer.gp:
+                points = tlc.gp_points()
+            else:
+                points = tlc.points()
             plt.plot(points['t'], points['cleaned'], color=tlc.color, marker='o', linewidth=0, alpha=0.25)
 
-            lines = tlc.gp_lines(mean=True)
+            if self.synthesizer.gp:
+                lines = tlc.gp_lines(mean=True)
+            else:
+                lines = tlc.lines()
+            bestdeterministic[key] = lines['raw'] - lines['cleaned']
             plt.plot(lines['t'], lines['cleaned'], linewidth=2, alpha=1, color='black')
+
+            print 'best!'
+            hyperparameters = tlc.TM.instrument.gplna.value, tlc.TM.instrument.gplntau.value
+            #print j, i, which, walker
+            print hyperparameters
+
 
             if tlc.telescope == self.telescopes[0]:
                 self.axes[key].xaxis.set_label_position("top")
@@ -96,18 +101,23 @@ class IndividualPlots(Plot):
                 self.axes[key].yaxis.set_label_position("right")
                 self.axes[key].set_ylabel('{0}'.format(tlc.telescope))
 
+        # then, plot some samples
         colors = {2:'blue', 3:'green'}
-        chain = synthesizer.sampler.chain
-        n, walkers, m = chain.shape
+        chain = self.synthesizer.sampler.chain
+        nwalkers, nsteps, ndim = chain.shape
+        self.speak('shape is {0}'.format(chain.shape))
         for j in [2,3]:
-            quartile = n*j/4
+            quartile = nsteps*j/4
             for i in range(5):
-                which = int(np.random.uniform(quartile,quartile+n/4))
-                walker = int(np.random.uniform(0, walkers))
-                new = chain[which, walker,:]
-                self.synthesizer.fromArray(new)
-                lines = tlc.gp_lines(mean=True)
-                for tlc in self.tlcs:
+                which = int(np.random.uniform(quartile,quartile+nsteps/4))
+                walker = int(np.random.uniform(0, nwalkers))
+                #new = np.array(self.best) + 0.0#
+                #new[-3] = new[-3] + i*0.01
+                new = chain[walker, which,:]
+
+                self.synthesizer.fromArray(new, verbose=True)
+                for tlc in self.synthesizer.tlcs:
+                    tlc.pithy=False
                     # select this particular light curve
                     key = self.identifier(tlc)
 
@@ -117,10 +127,18 @@ class IndividualPlots(Plot):
                     except KeyError:
                         continue
 
-                    lines = tlc.gp_lines(mean=True)
-                    plt.plot(lines['t'], lines['cleaned'], linewidth=1, alpha=0.5, color=colors[j])
-
-
+                    if self.synthesizer.gp:
+                        extralines = tlc.gp_lines(mean=False)
+                        #extralines = tlc.gp_lines(mean=True)
+                    else:
+                        extralines = tlc.lines()
+                        #assert(False)
+                    self.speak('{0}'.format(tlc))
+                    self.axes[key].plot(extralines['t'], extralines['raw'] - bestdeterministic[key], linewidth=1, alpha=0.5, color=colors[j])
+                    hyperparameters = tlc.TM.instrument.gplna.value, tlc.TM.instrument.gplntau.value
+                    print j, i, which, walker
+                    print hyperparameters
+                    tlc.pithy=True
         self.axes[key].set_xlim(*xlim)
         self.axes[key].set_ylim(*ylim)
 

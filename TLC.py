@@ -23,6 +23,7 @@ class TLC(Talker):
 
 		# initialize the Talker object
 		Talker.__init__(self)
+		self.pithy=True
 		self.color = color
 		self.speak('creating an empty TLC')
 
@@ -719,6 +720,18 @@ class TLC(Talker):
 		d['residualsfromgp'] = d['residuals'] - mean_wiggle
 		return d
 
+	def points(self):
+		ok = self.ok
+
+		# a dictionary of ok data points, in various stages of correction
+		d = {}
+		d['bjd'] = self.bjd[ok]
+		d['t'] = self.TM.planet.timefrommidtransit(self.bjd)[ok]
+		d['raw'] = self.flux[ok]
+		d['cleaned'] = self.corrected()[ok]
+		d['residuals'] = self.residuals()[ok]
+		return d
+
 	def gp_lines(self, mean=True):
 		'''if mean=True, will return the mean of the GP prediction; otherwise, will sample from it'''
 		# make sure a smooth fake TLC is set up
@@ -743,6 +756,27 @@ class TLC(Talker):
 		else:
 			wiggle = self.gp.sample_conditional(self.residuals()[ok], d['bjd'])
 
+		d['residuals'] = wiggle
+		d['cleaned'] = d['cleanedfromgp'] + wiggle
+		d['raw'] = self.TM.model(tlc=self.smoothed) + wiggle
+
+		return d
+
+	def lines(self):
+		# make sure a smooth fake TLC is set up
+		try:
+			self.smoothed
+		except AttributeError:
+			self.smoothed = self.fake(np.linspace(np.min(self.bjd), np.max(self.bjd), 1000))
+
+		# a dictionary of ok data points, in various stages of correction
+		d = {}
+		d['bjd'] = self.smoothed.bjd
+		d['t'] = self.TM.planet.timefrommidtransit(d['bjd'])
+		d['residualsfromgp'] = np.zeros_like(d['bjd'])
+		d['cleanedfromgp'] = self.TM.planet_model(tlc=self.smoothed)
+
+		wiggle = 0
 		d['residuals'] = wiggle
 		d['cleaned'] = d['cleanedfromgp'] + wiggle
 		d['raw'] = self.TM.model(tlc=self.smoothed) + wiggle

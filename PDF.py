@@ -300,7 +300,7 @@ class PDF(Talker):
 
 class Sampled(PDF):
 
-	def __init__(self, samples=None, **kwargs):
+	def __init__(self, samples=None, summarize=True, **kwargs):
 
 		"""initialize a PDF from a dictionary of samples"""
 		self.color = 'Black'
@@ -325,11 +325,12 @@ class Sampled(PDF):
 		# calculate the values
 		self.recenter()
 
-		# calculate the covariance matrix
-		self.calculateCovariance()
+		if summarize:
+			# calculate the covariance matrix
+			self.calculateCovariance()
 
-		# populate the parameter uncertainties
-		self.populateUncertainties()
+			# populate the parameter uncertainties
+			self.populateUncertainties()
 
 
 	def recenter(self, method=np.mean):

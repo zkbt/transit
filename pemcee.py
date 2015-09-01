@@ -45,11 +45,11 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
         else:
             self.nrows = np.minimum(self.dim, nmax)
 
-        self.figure = plt.figure('emcee parameter history', figsize=(4,2*self.nrows+4))
+        self.figure = plt.figure('emcee parameter history', figsize=(7,1*self.nrows+3))
 
         hr = np.ones(self.nrows+1)
         hr[-1] *=3
-        self.gs = plt.matplotlib.gridspec.GridSpec(self.nrows+1, 1, hspace=0.1, wspace=0, height_ratios=hr, left=0.3)
+        self.gs = plt.matplotlib.gridspec.GridSpec(self.nrows+1, 1, hspace=0.1, wspace=0, height_ratios=hr, left=0.4, top=0.95, bottom=0.05, right=0.95)
         self.ax_history = {}
         ax = plt.subplot(self.gs[-1])
         ax.set_ylabel('lnp')
@@ -67,9 +67,9 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
 
     def HistoryPlot(self, limits, nmax=6):
         try:
-            plt.figure('emcee parameter history')
+            plt.scf(self.figure)
             self.ax_history
-        except:
+        except AttributeError:
             self.setupHistoryPlot(nmax=nmax)
 
         limits[1] = min(limits[1],self.chain.shape[1]-1)
