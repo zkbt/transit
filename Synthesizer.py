@@ -789,7 +789,9 @@ class MCMC(Fit):
 
                 self.speak('creating a plot of the PDF')
                 before = time.clock()
-                self.pdf.triangle(keys=self.pdf.names, title=output,
+                keys = [n for n in self.pdf.names if 'global' in n]
+                self.speak('{0}'.format(keys))
+                self.pdf.triangle(keys=keys, title=output,
                     plot_contours=True, plot_datapoints=False, plot_density=False,
                     alpha=0.5, show_titles=False)
                 plt.savefig(output + '_parameterpdf.pdf')

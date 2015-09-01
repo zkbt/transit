@@ -316,6 +316,8 @@ class Sampled(PDF):
 
 		# pull out the parameter names
 		self.names = self.samples.keys()
+		if 'lnprob' in self.names:
+			self.names.append(self.names.pop(self.names.index('lnprob')))
 
 		# define the parameters, using the samples
 		self.parameters = []
@@ -382,6 +384,8 @@ class MVG(PDF):
 			assert(len(names) == len(parameters))
 			for i in range(len(names)):
 				self.parameters[i].name = names[i]
+
+
 
 		self.names = [p.name for p in self.parameters]
 		self.values = [p.value for p in self.parameters]
