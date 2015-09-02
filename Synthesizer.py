@@ -726,6 +726,7 @@ class MCMC(Fit):
         # run the burn-in of the chain, creating plots along the way
         while (done and saved) == False:
 
+            self.speak("{0}".format(datetime.datetime.now()))
             # run the chain for one "leap"
             if done == False:
                 self.speak("running {0}-{1} of {2} burn-in steps, with {3} walkers".format(count, count+nleap, nburnin, nwalkers))
@@ -775,11 +776,30 @@ class MCMC(Fit):
                         which = np.arange(ninference) + nburnin
                 else:
                     which = nsteps/2 + np.arange(nsteps/2)
-
                 for i in range(nparameters):
                     samples[self.names[i]] = self.sampler.chain[:,which,i]
                 samples['lnprob'] = self.sampler.lnprobability[:,which]
                 self.pdf = PDF.Sampled(samples=samples, summarize=done)
+                after = time.clock()
+                self.speak('it took {0} seconds'.format(after-before))
+
+                # save summary
+                self.speak('writing a text summary of the PDF')
+                before = time.clock()
+                s = ["{0}\n".format(datetime.datetime.now())]
+                s.append("{nwalkers} walkers, {nsteps} steps, {ndim} parameters\n\n".format(**locals()))
+                self.pdf.calculateUncertainties()
+                s.extend(self.pdf.listParameters())
+                txt = open(output + '_summary.txt', 'w')
+                txt.write(''.join(s))
+                txt.close()
+                after = time.clock()
+                self.speak('it took {0} seconds'.format(after-before))
+
+
+                self.speak('saving the PDF to {0}'.format(self.directory))
+                before = time.clock()
+                self.pdf.save(self.directory + 'pdf.npy')
                 after = time.clock()
                 self.speak('it took {0} seconds'.format(after-before))
 
@@ -790,6 +810,7 @@ class MCMC(Fit):
                 self.speak('creating a plot of the PDF')
                 before = time.clock()
                 keys = [n for n in self.pdf.names if 'global' in n]
+                keys.append('lnprob')
                 self.speak('{0}'.format(keys))
                 self.pdf.triangle(keys=keys, title=output,
                     plot_contours=True, plot_datapoints=False, plot_density=False,
@@ -809,6 +830,7 @@ class MCMC(Fit):
                 after = time.clock()
                 self.speak('it took {0} seconds'.format(after-before))
 
+                #bla = self.input('bla')
                 # plot
                 '''for tlc in self.tlcs:
                     transit.QuicklookTransitPlot(tlc=tlc)

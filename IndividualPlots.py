@@ -87,10 +87,10 @@ class IndividualPlots(Plot):
             bestdeterministic[key] = lines['raw'] - lines['cleaned']
             plt.plot(lines['t'], lines['cleaned'], linewidth=2, alpha=1, color='black')
 
-            print 'best!'
+            #print 'best!'
             hyperparameters = tlc.TM.instrument.gplna.value, tlc.TM.instrument.gplntau.value
             #print j, i, which, walker
-            print hyperparameters
+            #print hyperparameters
 
 
             if tlc.telescope == self.telescopes[0]:
@@ -105,7 +105,7 @@ class IndividualPlots(Plot):
         colors = {2:'blue', 3:'green'}
         chain = self.synthesizer.sampler.chain
         nwalkers, nsteps, ndim = chain.shape
-        self.speak('shape is {0}'.format(chain.shape))
+        #self.speak('shape is {0}'.format(chain.shape))
         for j in [2,3]:
             quartile = nsteps*j/4
             for i in range(5):
@@ -115,7 +115,7 @@ class IndividualPlots(Plot):
                 #new[-3] = new[-3] + i*0.01
                 new = chain[walker, which,:]
 
-                self.synthesizer.fromArray(new, verbose=True)
+                self.synthesizer.fromArray(new)#, verbose=True)
                 for tlc in self.synthesizer.tlcs:
                     tlc.pithy=False
                     # select this particular light curve
@@ -133,11 +133,11 @@ class IndividualPlots(Plot):
                     else:
                         extralines = tlc.lines()
                         #assert(False)
-                    self.speak('{0}'.format(tlc))
+                    #self.speak('{0}'.format(tlc))
                     self.axes[key].plot(extralines['t'], extralines['raw'] - bestdeterministic[key], linewidth=1, alpha=0.5, color=colors[j])
                     hyperparameters = tlc.TM.instrument.gplna.value, tlc.TM.instrument.gplntau.value
-                    print j, i, which, walker
-                    print hyperparameters
+                    #print j, i, which, walker
+                    #print hyperparameters
                     tlc.pithy=True
         self.axes[key].set_xlim(*xlim)
         self.axes[key].set_ylim(*ylim)

@@ -200,7 +200,7 @@ class TLC(Talker):
 		ok = self.bad == False
 		return np.sum((self.residuals()/self.uncertainty)[ok]**2)
 
-	def gp_compute(self, hyperparameters):
+	def gp_compute(self, hyperparameters, verbose=False):
 		a, tau = np.exp(hyperparameters[:2])
 
 		#self.gp = george.GP(a*george.kernels.ExpSquaredKernel(tau))#, solver=george.HODLRSolver)
@@ -212,9 +212,10 @@ class TLC(Talker):
 		self.gp.compute(t, yerr)
 		after = time.clock()
 
-		self.speak('computed kernel {0} for {1} data points in {2} microseconds'.format(self.gp, len(t), 1e6*(after-before)))
+		if verbose:
+			self.speak('computed kernel {0} for {1} data points in {2} microseconds'.format(self.gp, len(t), 1e6*(after-before)))
 
-	def gp_lnprob(self):
+	def gp_lnprob(self, verbose=False):
 		'''Return the GP calculated likelihood of *this* light curve, assuming the (not hyper-)parameters have been set elsewhere.'''
 
 		#WHAT ER THE HYPERPAREMETES?
@@ -226,7 +227,8 @@ class TLC(Talker):
 		lnp = self.gp.lnlikelihood(self.residuals()[ok], quiet=True)
 		after = time.clock()
 
-		self.speak('computed likelihood for {0} data points in {1} microseconds'.format(np.sum(ok), 1e6*(after-before)))
+		if verbose:
+			self.speak('computed likelihood for {0} data points in {1} microseconds'.format(np.sum(ok), 1e6*(after-before)))
 		return lnp
 
 	def bestBeta(self, timescale=15.0/60.0/24.0):

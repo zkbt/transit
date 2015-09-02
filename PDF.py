@@ -58,7 +58,7 @@ class PDF(Talker):
 		for i in range(len(self.names)):
 			self.parameters.append(Parameter(self.names[i], self.values[i]))
 
-		self.populateUncertainties()
+		#self.populateUncertainties()
 
 		# record the fact that this has been initialized
 		self._initialized = True
@@ -367,6 +367,7 @@ class Sampled(PDF):
 
 			self.parameters[i].value = value
 			self.parameters[i].uncertainty = uncertainty
+
 
 
 class MVG(PDF):
