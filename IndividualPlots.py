@@ -102,11 +102,12 @@ class IndividualPlots(Plot):
                 self.axes[key].set_ylabel('{0}'.format(tlc.telescope))
 
         # then, plot some samples
-        colors = {2:'blue', 3:'green'}
+        colors = {2:'blue', 3:'gray'}
         chain = self.synthesizer.sampler.chain
         nwalkers, nsteps, ndim = chain.shape
         #self.speak('shape is {0}'.format(chain.shape))
-        for j in [2,3]:
+        #for j in [2,3]:
+        for j in [3]:
             quartile = nsteps*j/4
             for i in range(5):
                 which = int(np.random.uniform(quartile,quartile+nsteps/4))

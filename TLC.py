@@ -734,13 +734,13 @@ class TLC(Talker):
 		d['residuals'] = self.residuals()[ok]
 		return d
 
-	def gp_lines(self, mean=True):
+	def gp_lines(self, mean=True, resolution=300):
 		'''if mean=True, will return the mean of the GP prediction; otherwise, will sample from it'''
 		# make sure a smooth fake TLC is set up
 		try:
 			self.smoothed
 		except AttributeError:
-			self.smoothed = self.fake(np.linspace(np.min(self.bjd), np.max(self.bjd), 1000))
+			self.smoothed = self.fake(np.linspace(np.min(self.bjd), np.max(self.bjd), resolution))
 
 		# a dictionary of ok data points, in various stages of correction
 		d = {}
