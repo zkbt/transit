@@ -38,15 +38,16 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
     def addLabels(self, labels):
         self.labels = labels
 
-    def setupHistoryPlot(self, nmax=6):
+    def setupHistoryPlot(self, keys=None):
 
-        if nmax is None:
-            self.nrows = self.dim
+        if keys is None:
+            self.toplot = self.labels
         else:
-            self.nrows = np.minimum(self.dim, nmax)
+            self.toplot = keys
+        self.nrows = len(self.toplot)
 
+        # set up figure
         self.figure = plt.figure('emcee parameter history', figsize=(7,1*self.nrows+3))
-
         hr = np.ones(self.nrows+1)
         hr[-1] *=3
         self.gs = plt.matplotlib.gridspec.GridSpec(self.nrows+1, 1, hspace=0.1, wspace=0, height_ratios=hr, left=0.4, top=0.95, bottom=0.05, right=0.95)
@@ -57,7 +58,7 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
 
         # loop over the individual parameters
         for i in range(self.nrows):
-            key = self.labels[-i]
+            key = self.toplot[-i]
             ax = plt.subplot(self.gs[i], sharex=self.ax_history['lnp'])
             plt.setp(ax.get_xticklabels(), visible=False)
             plt.setp(ax.get_yticklabels(), visible=False)
@@ -65,24 +66,24 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
             self.ax_history[key] = ax
 
 
-    def HistoryPlot(self, limits, nmax=6):
+    def HistoryPlot(self, limits, keys=None, maxwalkers=50):
         try:
             plt.scf(self.figure)
             self.ax_history
         except AttributeError:
-            self.setupHistoryPlot(nmax=nmax)
+            self.setupHistoryPlot(keys=keys)
 
         limits[1] = min(limits[1],self.chain.shape[1]-1)
 
         kw = dict(color='black', alpha=0.1, linewidth=1)
         x = np.arange(limits[0], limits[1]+1,1)
-        for walker in range(np.minimum(self.k, 50)):
+        for walker in range(np.minimum(self.k, maxwalkers)):
             self.ax_history['lnp'].plot(x,self.lnprobability[walker,limits[0]:limits[1]+1], **kw)
             for p in range(self.nrows):
-                key = self.labels[-p]
+                key = self.toplot[-p]
                 self.ax_history[key].plot(x, self.chain[walker,limits[0]:limits[1]+1,p], **kw)
                 if walker == 0:
                     self.ax_history[key].set_ylim(*np.percentile(self.flatchain[:,p], [1,99]))
-        self.ax_history['lnp'].set_xlim(0, limits[1])
+        self.ax_history['lnp'].set_xlim(limits[0], limits[1])
         self.ax_history['lnp'].set_ylim(np.percentile(self.flatlnprobability,25), np.max(self.flatlnprobability))
         plt.draw()

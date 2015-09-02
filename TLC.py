@@ -36,7 +36,7 @@ class TLC(Talker):
 		# specify the left and right wavelengths of this bandpass
 		self.left = left
 		self.right = right
-		print '!!!!!!!!', self.left, self.right
+		#print '!!!!!!!!', self.left, self.right
 		# keep track of the telescope (and epoch)
 		self.telescope=telescope
 		self.epoch=epoch

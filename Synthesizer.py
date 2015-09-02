@@ -757,10 +757,19 @@ class MCMC(Fit):
                 plt.ioff()
                 save = True
 
+                nwalkers, nsteps, ndim = self.sampler.chain.shape
+                if burnt:
+                    which = nburnin + np.arange(nsteps - nburnin)
+                    if done:
+                        which = np.arange(ninference) + nburnin
+                else:
+                    which = nsteps/2 + np.arange(nsteps/2)
+
+
                 # plot the trace of the parameters
                 self.speak('creating plot of the parameter traces')
                 before = time.clock()
-                self.sampler.HistoryPlot([0, count + nleap],nmax=None)
+                self.sampler.HistoryPlot([0, np.max(which)],keys=[k for k in self.sampler.labels if 'global@global' in k])
                 if save:
                     plt.savefig(output + '_parametertrace.png')
                 after = time.clock()
@@ -769,13 +778,6 @@ class MCMC(Fit):
                 self.speak('creating a PDF of the parameters')
                 before = time.clock()
                 samples = {}
-                nwalkers, nsteps, ndim = self.sampler.chain.shape
-                if burnt:
-                    which = nburnin + np.arange(nsteps - nburnin)
-                    if done:
-                        which = np.arange(ninference) + nburnin
-                else:
-                    which = nsteps/2 + np.arange(nsteps/2)
                 for i in range(nparameters):
                     samples[self.names[i]] = self.sampler.chain[:,which,i]
                 samples['lnprob'] = self.sampler.lnprobability[:,which]
@@ -800,6 +802,7 @@ class MCMC(Fit):
                 self.speak('saving the PDF to {0}'.format(self.directory))
                 before = time.clock()
                 self.pdf.save(self.directory + 'pdf.npy')
+                self.pdf.export(self.directory + 'transitproperties.npy', keys=[k for k in self.pdf.names if 'global@global' in k])
                 after = time.clock()
                 self.speak('it took {0} seconds'.format(after-before))
 
