@@ -155,7 +155,9 @@ class TM(Talker):
 		typ = np.empty_like(t, dtype=np.uint8)
 		typ.fill(eb.OBS_VRAD1)
 
-		return self.planet.semiamplitude.value*eb.model(self.ebparams, t, typ) + self.star.gamma.value
+		rv = self.planet.semiamplitude.value*eb.model(self.ebparams, t, typ) + self.star.gamma.value
+		assert(np.isfinite(rv).all())
+		return rv
 
 	#@profile
 	def planet_model(self, tlc=None, t=None):

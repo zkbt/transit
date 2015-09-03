@@ -249,8 +249,8 @@ class Synthesizer(Talker):
         #assert(self.densityprior is not None)
         if (self.densityprior is not None) & (len(combined_deviates) > 0):
             central, width = self.densityprior
-            if len(self.tms) > 1:
-                assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
+            #if len(self.tms) > 1:
+            #    assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
             density_prior = (self.tms[0].planet.stellar_density - central)/width
             combined_deviates.append(density_prior)
         #print density_prior
@@ -326,6 +326,20 @@ class Synthesizer(Talker):
         lnprob = lnprior + lnlikelihood
         #self.speak('lnlikelihood = {lnlikelihood:10.1f}, lnprior = {lnprior:10.1f}, lnprob = {lnprob:10.1f}'.format(**locals()))
 
+        if len(self.rvcs) > 0:
+            for rvc in self.rvcs:
+
+                # weight only the good points
+                ok = (rvc.bad == 0).nonzero()
+
+                # calculate the deviates for this one TLC
+                devs = (rvc.rv[ok] - rvc.TM.stellar_rv()[ok])/rvc.effective_uncertainty[ok]
+                chisq = np.sum(devs**2)
+                jitterpenalty = np.sum(np.log(1.0/rvc.effective_uncertainty[ok]))
+
+                lnprob += -chisq/2.0 + jitterpenalty
+
+        assert(np.isfinite(lnprob))
         return lnprob
 
     def lnprior(self):
@@ -339,14 +353,17 @@ class Synthesizer(Talker):
             if par.value > par.limits[1]:
                 return -np.inf
 
+        if (self.tms[0].planet.ecosw.value**2 + self.tms[0].planet.esinw.value**2) > 1.0:
+            return -np.inf
+
         # incorporate density prior, if need be
         if (self.densityprior is not None):
             # pull out the prior parameters
             central, width = self.densityprior
 
             # make sure multiple transit models agree on the calculated density
-            if len(self.tms) > 1:
-                assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
+            #if len(self.tms) > 1:
+            #    assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
 
             # calculate the density prior
             prior = -0.5*((self.tms[0].planet.stellar_density - central)/width)**2
@@ -366,6 +383,7 @@ class Synthesizer(Talker):
             # append it
             lnp += prior
 
+
         # incorporate a prior on t0, if need be
         if (self.t0prior is not None):
             # pull out the prior parameters
@@ -379,13 +397,16 @@ class Synthesizer(Talker):
             lnp += prior
 
         if (self.eprior is not None):
-            # pull out the prior parameters
-            a, b = self.eprior
-            value = self.tms[0].planet.e
-            #####
+            if (self.tms[0].planet.ecosw.fixed == False) or (self.tms[0].planet.esinw.fixed == False):
+                # pull out the prior parameters
+                a, b = self.eprior
+                value = self.tms[0].planet.e
+                #####
 
-            prior = np.ln(value**(a-1)*(1-value)**(b-1)/scipy.special.beta(a,b))
-            lnp += prior
+                prior = np.log(value**(a-1)*(1-value)**(b-1)/scipy.special.beta(a,b))
+                lnp += prior
+
+        assert(np.isfinite(lnp))
         return lnp
 
     ##@profile
@@ -665,8 +686,11 @@ class MCMC(Fit):
             # ignore the GP in the LM fit
             if self.gp:
                 for tm in self.tms:
-                    tm.instrument.gplna.fixed = True
-                    tm.instrument.gplntau.fixed = True
+                    try:
+                        tm.instrument.gplna.fixed = True
+                        tm.instrument.gplntau.fixed = True
+                    except AttributeError:
+                        pass
 
             # set up the LM fit
             self.lm = LM(self.tlcs, directory=self.directory, gp=False)
@@ -678,9 +702,11 @@ class MCMC(Fit):
             # take care of the kludge that left the GP out of the fit
             if self.gp:
                 for tm in self.tms:
-                    tm.instrument.gplna.fixed = False
-                    tm.instrument.gplntau.fixed = False
-
+                    try:
+                        tm.instrument.gplna.fixed = False
+                        tm.instrument.gplntau.fixed = False
+                    except AttributeError:
+                        pass
             #if interactive:
             #    assert(('n' in self.input('parameters okay?')) == False)
 
@@ -758,18 +784,18 @@ class MCMC(Fit):
                 save = True
 
                 nwalkers, nsteps, ndim = self.sampler.chain.shape
-                if burnt:
+                '''if burnt:
                     which = nburnin + np.arange(nsteps - nburnin)
                     if done:
                         which = np.arange(ninference) + nburnin
                 else:
                     which = nsteps/2 + np.arange(nsteps/2)
-
+                '''
 
                 # plot the trace of the parameters
                 self.speak('creating plot of the parameter traces')
                 before = time.clock()
-                self.sampler.HistoryPlot([0, np.max(which)],keys=[k for k in self.sampler.labels if 'global@global' in k])
+                self.sampler.HistoryPlot([0, nsteps],keys=[k for k in self.sampler.labels if 'global@global' in k])
                 if save:
                     plt.savefig(output + '_parametertrace.png')
                 after = time.clock()
@@ -779,8 +805,8 @@ class MCMC(Fit):
                 before = time.clock()
                 samples = {}
                 for i in range(nparameters):
-                    samples[self.names[i]] = self.sampler.chain[:,which,i]
-                samples['lnprob'] = self.sampler.lnprobability[:,which]
+                    samples[self.names[i]] = self.sampler.chain[:,:,i]
+                samples['lnprob'] = self.sampler.lnprobability[:,:]
                 self.pdf = PDF.Sampled(samples=samples, summarize=done)
                 after = time.clock()
                 self.speak('it took {0} seconds'.format(after-before))
@@ -823,14 +849,28 @@ class MCMC(Fit):
                 self.speak('it took {0} seconds'.format(after-before))
 
                 #
-                #best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
-                #self.fromArray(best)
+                best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
+                self.fromArray(best)
 
                 if len(self.tlcs) > 0:
                     self.speak('creating a plot of the light curves that have been fitted')
+                    before = time.clock()
                     transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
                     if save:
                         plt.savefig(output + '_everything.pdf')
+                    after = time.clock()
+                    self.speak('it took {0} seconds'.format(after-before))
+
+                if len(self.rvcs) > 0:
+                    best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
+                    self.fromArray(best)
+
+                    self.speak('creating a plot of the RVs that have been fitted')
+                    before = time.clock()
+                    ylim=[-15, 15]
+                    kw = dict(ylim=ylim)
+                    p = transit.RVPhasedPlot(rvcs=self.rvcs, **kw)
+                    plt.savefig(output + '_rv.pdf')
                     after = time.clock()
                     self.speak('it took {0} seconds'.format(after-before))
 

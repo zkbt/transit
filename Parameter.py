@@ -119,6 +119,8 @@ class Parameter(object):
 			s = '${value}$'.format(value=self.exponent(np.round(self.value)))
 		else:
 			ndigits = -np.round(np.log10(self.uncertainty)).astype(np.int)+2
+			if np.isfinite(ndigits*self.uncertainty) == False:
+				return '!&!%)'
 			s = '${value} \pm {uncertainty}$'.format(value=self.exponent(np.round(self.value, decimals=ndigits)), uncertainty=self.exponent(np.round(self.uncertainty, decimals=ndigits)))
 		return s
 		#if ndigits < 0:

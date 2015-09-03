@@ -44,6 +44,7 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
             self.toplot = self.labels
         else:
             self.toplot = keys
+        self.indices = [self.labels.index(k) for k in self.toplot]
         self.nrows = len(self.toplot)
 
         # set up figure
@@ -58,7 +59,7 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
 
         # loop over the individual parameters
         for i in range(self.nrows):
-            key = self.toplot[-i]
+            key = self.toplot[i]
             ax = plt.subplot(self.gs[i], sharex=self.ax_history['lnp'])
             plt.setp(ax.get_xticklabels(), visible=False)
             plt.setp(ax.get_yticklabels(), visible=False)
@@ -80,10 +81,11 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
         for walker in range(np.minimum(self.k, maxwalkers)):
             self.ax_history['lnp'].plot(x,self.lnprobability[walker,limits[0]:limits[1]+1], **kw)
             for p in range(self.nrows):
-                key = self.toplot[-p]
-                self.ax_history[key].plot(x, self.chain[walker,limits[0]:limits[1]+1,p], **kw)
+                key = self.toplot[p]
+                index = self.indices[p]
+                self.ax_history[key].plot(x, self.chain[walker,limits[0]:limits[1]+1,index], **kw)
                 if walker == 0:
-                    self.ax_history[key].set_ylim(*np.percentile(self.flatchain[:,p], [1,99]))
+                    self.ax_history[key].set_ylim(*np.percentile(self.flatchain[:,index], [1,99]))
         self.ax_history['lnp'].set_xlim(limits[0], limits[1])
         self.ax_history['lnp'].set_ylim(np.percentile(self.flatlnprobability,25), np.max(self.flatlnprobability))
         plt.draw()
