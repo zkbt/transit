@@ -826,12 +826,13 @@ class MCMC(Fit):
                 #best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
                 #self.fromArray(best)
 
-                self.speak('creating a plot of the light curves that have been fitted')
-                transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
-                if save:
-                    plt.savefig(output + '_everything.pdf')
-                after = time.clock()
-                self.speak('it took {0} seconds'.format(after-before))
+                if len(self.tlcs) > 0:
+                    self.speak('creating a plot of the light curves that have been fitted')
+                    transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
+                    if save:
+                        plt.savefig(output + '_everything.pdf')
+                    after = time.clock()
+                    self.speak('it took {0} seconds'.format(after-before))
 
                 #bla = self.input('bla')
                 # plot
