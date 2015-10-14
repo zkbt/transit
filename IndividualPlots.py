@@ -16,7 +16,7 @@ class IndividualPlots(Plot):
     def identifier(self, tlc):
         return str(tlc)
 
-    def setup(self, tlcs=None, stretch=2, epochs=[-19, -11,  0, 11], telescopes=['MEarth13','MEarth12','MEarth14', 'MEarth18', 'TRAPPIST', 'PISCOg', 'PISCOi'], dpi=30, **kwargs):
+    def setup(self, tlcs=None, stretch=2.0, epochs=[-19, -11,  0, 11], telescopes=['MEarth13','MEarth12','MEarth14', 'MEarth18', 'TRAPPIST', 'PISCOg', 'PISCOi'], gskw=dict(bottom=0.05, left=0.1, right=0.95, top=0.95), dpi=30, **kwargs):
         # set up the axes for the plot
         self.tlcs = tlcs
         if telescopes is None:
@@ -33,7 +33,7 @@ class IndividualPlots(Plot):
         inchinmm = 25.4/2.0
         scale = 183/inchinmm
         self.figure = plt.figure('light curves', figsize=(scale, scale*self.nrows/(self.ncols*stretch)), dpi=dpi)
-        self.gs = plt.matplotlib.gridspec.GridSpec(self.nrows, self.ncols, hspace=0.1, wspace=0.05, bottom=0.05, left=0.1, right=0.95, top=0.95)
+        self.gs = plt.matplotlib.gridspec.GridSpec(self.nrows, self.ncols, hspace=0.1, wspace=0.05, **gskw)
 
         # define all the axes
         self.axes = {}
@@ -72,7 +72,7 @@ class IndividualPlots(Plot):
                 self.maxcol[tlc.telescope] = col
 
 
-    def plot(self, tlcs, synthesizer=None, xlim=(-1.5/24, 1.5/24), ylim=(0.985, 1.015), binsize=5.0/24.0/60.0, title='',  **kwargs):
+    def plot(self, tlcs, synthesizer=None, xlim=(-1.5/24, 1.5/24), ylim=(0.985, 1.015), binsize=5.0/24.0/60.0, title='',  epochs=None, telescopes=None, gskw=None, **kwargs):
         self.synthesizer=synthesizer
         done = {}
         self.synthesizer.fromPDF(option='best')
@@ -175,7 +175,7 @@ class IndividualPlots(Plot):
 
             # loop over the light curves and plot them
             for tlc in self.synthesizer.tlcs:
-                tlc.pithy=False
+                #tlc.pithy=False
                 # select this particular light curve
                 key = self.identifier(tlc)
 
@@ -202,7 +202,7 @@ class IndividualPlots(Plot):
                 hyperparameters = tlc.TM.instrument.gplna.value, tlc.TM.instrument.gplntau.value
                 #print j, i, which, walker
                 #print hyperparameters
-                tlc.pithy=True
+                #tlc.pithy=True
         self.axes[key].set_xlim(*xlim)
         self.axes[key].set_ylim(*ylim)
 

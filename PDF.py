@@ -145,7 +145,7 @@ class PDF(Talker):
 								labels=keys,
 								truths=truths,
 								quantiles=quantiles,
-								title_args={"fontsize": 12},
+								title_args={"fontsize": 8},
 								levels = 1.0 - np.exp(-0.5 * np.array([1.0,2.0]) ** 2),
 								**kwargs)
 		figure.set_dpi(dpi)

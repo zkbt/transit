@@ -801,7 +801,10 @@ class MCMC(Fit):
                 # plot the trace of the parameters
                 self.speak('creating plot of the parameter traces')
                 before = time.clock()
-                self.sampler.HistoryPlot([0, nsteps],keys=[k for k in self.sampler.labels if 'global@global' in k])
+                somekeys = [k for k in self.sampler.labels if 'global@global' in k]
+                if len(somekeys) == 0:
+                    somekeys = [k for k in self.sampler.labels if 'global' in k]
+                self.sampler.HistoryPlot([0, nsteps],keys=somekeys)
                 if save:
                     plt.savefig(output + '_parametertrace.png')
                 after = time.clock()
@@ -893,11 +896,16 @@ class MCMC(Fit):
         if len(self.tlcs) > 0:
             self.speak('creating a plot of the light curves that have been fitted')
             before = time.clock()
-            try:
+            # is it the MEarth object?
+            ismearth=False
+            for tlc in self.tlcs:
+                if 'MEarth' in tlc.telescope:
+                    ismearth=True
+            if ismearth:
                 transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
-                plt.savefig(output + '_everything.pdf')
-            except KeyError:
-                pass
+            else:
+                transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self, telescopes=None, epochs=None, xlim=[None, None], binsize=15./60/24, gskw=dict(top=0.9, bottom=0.2))
+            plt.savefig(output + '_everything.pdf')
             after = time.clock()
             self.speak('it took {0} seconds'.format(after-before))
 
