@@ -13,7 +13,12 @@ import triangle
 saveable = ['names', 'values', 'covariance', 'samples']
 
 def load(filename):
-	return Sampled(filename=filename)
+	loaded = np.load(filename)[()]
+	if loaded['samples'] is None:
+		return MVG(filename=filename)
+	else:
+		return Sampled(samples=loaded['samples'])
+	#return Sampled(filename=filename)
 
 class PDF(Talker):
 	"""an instance of Probability Density Function can [visualize, print, marginalize] a distribution"""
@@ -41,8 +46,18 @@ class PDF(Talker):
 			s.append(thisline)
 		return s
 
+	def asymmetricError(self, key):
+		x = self.samples[key]
+		central = np.median(x)
+		span = np.percentile(x,[15.865525393145708, 84.134474606854297])
+		lower = central-span[0]
+		upper = span[1]-central
+		return central, upper, lower
+
 	def printParameters(self):
-		for p in self.listParameters():
+		strings = self.listParameters()
+		strings.sort()
+		for p in strings:
 			self.speak(p)
 
 	def load(self, filename):
@@ -84,9 +99,10 @@ class PDF(Talker):
 	def n(self):
 		return len(self.parameters)
 
-	def populateUncertainties(self):
-		for i in range(self.n):
-			self.parameters[i].uncertainty = np.sqrt(self.covariance[i,i])
+	def populateUncertainties(self, style='percentiles'):
+		self.calculateUncertainties(style=style)
+		#for i in range(self.n):
+		#	self.parameters[i].uncertainty = np.sqrt(self.covariance[i,i])
 
 	@property
 	def sigmas(self):
@@ -327,6 +343,8 @@ class Sampled(PDF):
 		# calculate the values
 		self.recenter()
 
+
+
 		if summarize:
 			# calculate the covariance matrix
 			self.calculateCovariance()
@@ -354,20 +372,40 @@ class Sampled(PDF):
 	def calculateUncertainties(self, style='percentiles'):
 
 		for i in range(self.n):
-
 			if style == 'percentiles':
+				ok = np.isfinite(self.samples[self.parameters[i].name])
 				edge = (1 - scipy.special.erf(1.0/np.sqrt(2)))/2.0
 				limits = [100*edge, 100*(1-edge)]
-				span = np.percentile(self.samples[self.parameters[i].name], limits)
+				span = np.percentile(self.samples[self.parameters[i].name][ok], limits)
 				value = np.mean(span)
 				uncertainty = (span[1] - span[0])/2.0
 			elif style == 'std':
-				value = np.mean(self.samples[self.parameters[i].name])
-				uncertainty = np.std(self.samples[self.parameters[i].name])
+				ok = np.isfinite(self.samples[self.parameters[i].name])
+				value = np.mean(self.samples[self.parameters[i].name][ok])
+				uncertainty = np.std(self.samples[self.parameters[i].name][ok])
+
 
 			self.parameters[i].value = value
 			self.parameters[i].uncertainty = uncertainty
 
+	def iBest(self):
+		return np.argmax(self.samples['lnprob'])
+
+	def iRandom(self):
+		return np.random.randint(len(self.samples['lnprob']))
+
+	def drawSample(self, keys, option='best'):
+		# pick the index
+		if option == 'best':
+			which = self.iBest()
+		if option == 'random':
+			which = self.iRandom()
+
+		values = np.zeros(len(keys))
+		for i, k in enumerate(keys):
+			values[i] = self.samples[k].flatten()[which]
+
+		return values
 
 
 class MVG(PDF):
@@ -394,6 +432,10 @@ class MVG(PDF):
 
 		# populate the parameter uncertainties
 		self.populateUncertainties()
+
+	def calculateUncertainties(self, **kwargs):
+		for i in range(self.n):
+			self.parameters[i].uncertainty = np.sqrt(self.covariance[i,i])
 
 	def simulateSamples(self, n=100):
 		'''Use parameter values and covariances to generate samples

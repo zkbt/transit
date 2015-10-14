@@ -2,7 +2,7 @@ from imports import *
 
 def plotbinned(x, flux, uncertainty=None, alpha=0.5, bin=6.0/24.0/60.0, **kwargs):
     bx, by, be = zachopy.oned.binto(x, flux,  bin, yuncertainty=uncertainty, robust=False, sem=True)
-    plt.errorbar(bx, by, be, color='black', alpha=alpha, elinewidth=3, marker='o', linewidth=0, capthick=3, **kwargs)
+    plt.errorbar(bx, by, be, color='black', alpha=alpha,  **kwargs)
 
 def ink_errorbar(x, y, yerr=None, xerr=None, colors=None, grayscale=False, alpha=1.0, **kwargs):
 

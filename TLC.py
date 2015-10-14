@@ -126,6 +126,7 @@ class TLC(Talker):
 				self.bad = np.isfinite(self.flux) == False
 
 		if haschanged & (self.isfake == False):
+			zachopy.utils.mkdir(self.directory)
 			self.save(self.directory)
 	@property
 	def effective_uncertainty(self):
@@ -137,17 +138,18 @@ class TLC(Talker):
 			[add other options (e.g. specify a color specific color)]'''
 
 		# set up the appropriate colors to use
-		#try:
-		#	self.colors
-		#except:
-
-		if True:
+		try:
+			self.colors
+		except AttributeError:
 			self.colors = {}
-			#if color=='eye':
-			#	self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
-			#	self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
-			#else:
-			if True:
+		self.color = color
+
+		if type(self.color) == str:
+			self.colors = {}
+			if color=='eye':
+				self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=1.0)
+				self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=2.0)
+			else:
 				self.colors['lines'] = color
 				r, g, b = zachopy.color.name2color(color.lower())
 				rgba = np.zeros((self.n, 4))
@@ -159,7 +161,9 @@ class TLC(Talker):
 				weights[over] = 1
 				rgba[:,3] = 1.0*weights
 				self.colors['points'] = rgba
-
+		else:
+			self.colors['points'] = self.color.color(self.wavelength/10)[0:3]
+			self.colors['lines'] = 'gray'
 	@property
 	def ok(self):
 		return self.bad == False
@@ -200,22 +204,27 @@ class TLC(Talker):
 		ok = self.bad == False
 		return np.sum((self.residuals()/self.uncertainty)[ok]**2)
 
-	def gp_compute(self, hyperparameters, verbose=False):
+	def gp_compute(self, hyperparameters):
 		a, tau = np.exp(hyperparameters[:2])
 
 		#self.gp = george.GP(a*george.kernels.ExpSquaredKernel(tau))#, solver=george.HODLRSolver)
-		self.gp = george.GP(a*george.kernels.Matern32Kernel(tau))#, solver=george.HODLRSolver)
 		ok = self.bad == False
 		t = self.bjd[ok]
+		if len(t) > 5000:
+			solver = george.HODLRSolver
+		else:
+			solver = george.BasicSolver
+
+		self.gp = george.GP(a*george.kernels.Matern32Kernel(tau), solver=solver)
+
 		yerr = self.uncertainty[ok]*self.rescaling
 		before = time.clock()
 		self.gp.compute(t, yerr)
 		after = time.clock()
 
-		if verbose:
-			self.speak('computed kernel {0} for {1} data points in {2} microseconds'.format(self.gp, len(t), 1e6*(after-before)))
+		self.speak('used {3} to compute kernel {0} for {1} data points in {2} microseconds'.format(self.gp, len(t), 1e6*(after-before), solver))
 
-	def gp_lnprob(self, verbose=False):
+	def gp_lnprob(self):
 		'''Return the GP calculated likelihood of *this* light curve, assuming the (not hyper-)parameters have been set elsewhere.'''
 
 		#WHAT ER THE HYPERPAREMETES?
@@ -227,8 +236,7 @@ class TLC(Talker):
 		lnp = self.gp.lnlikelihood(self.residuals()[ok], quiet=True)
 		after = time.clock()
 
-		if verbose:
-			self.speak('computed likelihood for {0} data points in {1} microseconds'.format(np.sum(ok), 1e6*(after-before)))
+		self.speak('computed likelihood for {0} data points in {1} microseconds'.format(np.sum(ok), 1e6*(after-before)))
 		return lnp
 
 	def bestBeta(self, timescale=15.0/60.0/24.0):
@@ -353,7 +361,7 @@ class TLC(Talker):
 						self.to_correlate.append(k.split('_tothe')[0])
 				ncor = np.int(np.ceil(np.sqrt(len(self.to_correlate))))
 				gs_external = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
-
+				assert(False)
 			else:
 				gs_lightcurve = plt.matplotlib.gridspec.GridSpec(5, 1, hspace=0.05, wspace=0, height_ratios=[1,0.5,0.1,1,0.5])
 
@@ -785,7 +793,7 @@ class TLC(Talker):
 
 		return d
 
-	def splitIntoEpochs(self, planet=None, buffer=5, thresholdInTransit=1, thresholdOutOfTransit=1):
+	def splitIntoEpochs(self, planet=None, buffer=5, thresholdInTransit=1, thresholdOutOfTransit=1, newdirectory=None):
 		assert(planet is not None)
 
 		inTransit = np.abs(planet.timefrommidtransit(self.bjd)) < planet.duration/2.0
@@ -806,9 +814,11 @@ class TLC(Talker):
 				for k in self.externalvariables.keys():
 					ev[k] = self.externalvariables[k][ok]
 				print '$$$$$$', self.left, self.right
+				if newdirectory is None:
+					newdirectory = self.directory
 				newTLC = TLC(self.bjd[ok], self.flux[ok], self.uncertainty[ok],
 								left=self.left, right=self.right,
-								directory = self.directory + '{0:.0f}/'.format(u), color=self.color,
+								directory = newdirectory + '{0:.0f}/'.format(u), color=self.color,
 								epoch=u, telescope=self.telescope, name=None, remake=True, bad=self.bad[ok], **ev)
 				print '=======',newTLC.left, newTLC.right
 				newTLCs.append(newTLC)

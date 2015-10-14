@@ -15,3 +15,4 @@ from SmooshedPlot import SmooshedPlot
 from RVPhasedPlot import RVPhasedPlot
 from RVUnphasedPlot import RVUnphasedPlot
 from QuicklookTransitPlot import QuicklookTransitPlot
+from MultiplexPlot import MultiplexPlot

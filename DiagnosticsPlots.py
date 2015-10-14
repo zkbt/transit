@@ -11,7 +11,7 @@ class DiagnosticsPlots(Plot):
 
                     self.ax_text.text(-0.1, 1.1, todisplay, va='top', fontsize=11)
 
-    def setup(self, tlc=None, everything=True):
+    def setup(self, tlc=None, everything=True, gs_destination=None, correlations='fitted', notfirst=False, **kwargs):
         '''Setup the axes needed for plotting a light curve.'''
 
         self.tlc = tlc
@@ -22,12 +22,17 @@ class DiagnosticsPlots(Plot):
             label = 'diagnostics'
         else:
             label = 'summary'
-        self.figure_diagnostics = plt.figure('light curve {0}'.format(label), figsize=(20,12), dpi=50)
+
+        if gs_destination is None:
+            self.figure_diagnostics = plt.figure('light curve {0}'.format(label), figsize=(20,12), dpi=50)
 
         # set up the light curve plots
         if everything:
             # create two columns, to populate with lightcurves on left and diagnostics on right
-            gs_overarching = plt.matplotlib.gridspec.GridSpec(1, 3, width_ratios=[1, 0.3, 1.0], wspace=0.25, left=0.09, right=0.98)
+            if gs_destination is None:
+                gs_overarching = plt.matplotlib.gridspec.GridSpec(1, 3, width_ratios=[1, 0.3, 1.0], wspace=0.25, left=0.09, right=0.98)
+            else:
+                gs_overarching = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(1, 3, gs_destination, width_ratios=[1, 0.3, 1.0], wspace=0.25)
 
             # create plots for light curves
             gs_lightcurve = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(5, 2, hspace=0.05, wspace=0, width_ratios = [1,.2], height_ratios=[1,0.5,0.1,1,0.5], subplot_spec = gs_overarching[0])
@@ -37,19 +42,27 @@ class DiagnosticsPlots(Plot):
 
             # potentially correlated variables
             self.to_correlate = []
-            #for k in self.tlc.TM.floating:
-            #    if k != 'C':
-            #        if k in self.tlc.TM.instrument.__dict__.keys() and k != 'rescaling':
-            #            self.to_correlate.append(k.split('_tothe')[0])
-            for k in self.tlc.externalvariables.keys():
-              if np.std(self.tlc.externalvariables[k]) > 0:
-                  self.to_correlate.append(k.split('_tothe')[0])
+            if correlations == 'fitted':
+                for k in self.tlc.TM.floating:
+                    if k != 'C':
+                        if k in self.tlc.TM.instrument.__dict__.keys() and k != 'rescaling':
+                            self.to_correlate.append(k.split('_tothe')[0])
+            elif correlations == 'all':
+                for k in self.tlc.externalvariables.keys():
+                  if (k == 'ok') or (k == 'bad'):
+                      continue
+                  if np.std(self.tlc.externalvariables[k]) > 0:
+                      self.to_correlate.append(k.split('_tothe')[0])
             ncor = np.int(np.ceil(np.sqrt(len(self.to_correlate))))
             gs_external = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
-
         else:
             # or, if desired, only plot the uncorrected and corrected light curves
-            gs_lightcurve = plt.matplotlib.gridspec.GridSpec(5, 1, hspace=0.05, wspace=0, height_ratios=[1,0.5,0.1,1,0.5])
+            if gs_destination is None:
+                gs_lightcurve = plt.matplotlib.gridspec.GridSpec(5, 1, hspace=0.05, wspace=0, height_ratios=[1,0.5,0.1,1,0.5])
+            else:
+                gs_lightcurve = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(5, 2, gs_destination, hspace=0.05, wspace=0, width_ratios = [1,.2],  height_ratios=[1,0.5,0.1,1,0.5])
+            self.ax_correlations = {}
+
 
         # set up the light curve (and residual) panels (leaving a space between the uncorrected and the corrected
         self.ax_raw = plt.subplot(gs_lightcurve[0,0])
@@ -69,14 +82,15 @@ class DiagnosticsPlots(Plot):
 
         # set up the labels for the light curve panels
         try:
-            self.ax_raw.set_title('{name} | {left:.0f}-{right:.0f} angstroms'.format(name=self.tlc.name, left=self.tlc.left, right=self.tlc.right))
+            self.ax_raw.set_title('E={epoch} | {left:.0f}-{right:.0f} nm'.format(name=self.tlc.name, epoch=self.tlc.epoch, left=self.tlc.left/10, right=self.tlc.right/10))
         except AttributeError:
             pass
-        self.ax_raw.set_ylabel('Basic Photometry')
-        self.ax_instrument.set_ylabel('transit\nresiduals\n(ppm)')
-        self.ax_corrected.set_ylabel('Corrected Photometry')
-        self.ax_residuals.set_ylabel('final\nresiduals\n(ppm)')
-        self.ax_residuals.set_xlabel('Time from Mid-Transit (days)')
+        if notfirst == False:
+            self.ax_raw.set_ylabel('Basic Photometry')
+            self.ax_instrument.set_ylabel('transit\nresiduals\n(ppm)')
+            self.ax_corrected.set_ylabel('Corrected Photometry')
+            self.ax_residuals.set_ylabel('final\nresiduals\n(ppm)')
+        self.ax_residuals.set_xlabel('Time from Syzygy (days)')
 
         # set up the y limits (is this necessary?)
         self.ax_raw.set_ylim(np.min(self.tlc.flux), np.max(self.tlc.flux))
@@ -117,7 +131,7 @@ class DiagnosticsPlots(Plot):
                 if i == len(self.to_correlate) - 1:
                     self.ax_correlations[k].set_xlabel('transit\nresiduals')
 
-    def plot(self, noiseassumedforplotting=0.001, directory=None, binsize=6.0/60.0/24.0, **kwargs):
+    def plot(self, noiseassumedforplotting=0.001, directory=None, binsize=6.0/60.0/24.0, mintimespan=None, **kwargs):
         '''A quick tool to plot what the light curve (and external variables) looks like.'''
         ppm = 1e6
 
@@ -126,8 +140,8 @@ class DiagnosticsPlots(Plot):
         self.tlc.TM.smooth_phased_tlc = self.tlc.fake( np.linspace(-self.tlc.TM.planet.period.value/2.0 + self.tlc.TM.planet.t0.value + 0.01, self.tlc.TM.planet.period.value/2.0 + self.tlc.TM.planet.t0.value-0.01, 100000))
         self.tlc.TM.smooth_unphased_tlc = self.tlc.fake(np.linspace(np.min(self.tlc.TLC.bjd), np.max(self.tlc.TLC.bjd), 100000))
 
-        goodkw = {'color':self.tlc.colors['points'], 'alpha':1, 'linewidth':0, 'marker':'o', 'edgecolor':self.tlc.colors['points'], 's':20}
-        badkw = {'color':self.tlc.colors['points'], 'alpha':0.25, 'linewidth':0, 'marker':'x', 'edgecolor':self.tlc.colors['points'], 's':20}
+        goodkw = {'color':self.tlc.colors['points'], 'alpha':0.5, 'marker':'o', 'edgecolor':'none', 's':10}
+        badkw = {'color':self.tlc.colors['points'], 'alpha':0.25, 'marker':'x', 'edgecolor':'none', 's':10}
         time = self.tlc.TM.planet.timefrommidtransit(self.tlc.bjd)
 
         notok = self.tlc.bad
@@ -148,18 +162,26 @@ class DiagnosticsPlots(Plot):
             self.ax_instrument.scatter(time[ok], ppm*self.tlc.instrumental()[ok], **kw)
             if good:
                 zorder = 10
+                bkw = dict(zorder=10, markersize=0, elinewidth=3, linewidth=0, capthick=0, alpha=1 )
                 plt.sca(self.ax_raw)
-                plotbinned(time[ok], self.tlc.flux[ok], uncertainty=self.tlc.uncertainty[ok], bin=binsize, zorder=zorder)
+                plotbinned(time[ok], self.tlc.flux[ok],
+                            uncertainty=self.tlc.uncertainty[ok], bin=binsize,
+                            **bkw)
+
                 plt.sca(self.ax_corrected)
-                plotbinned(time[ok], self.tlc.flux[ok]/self.tlc.TM.instrument_model()[ok], bin=binsize, uncertainty=self.tlc.uncertainty[ok], zorder=zorder)
+                plotbinned(time[ok], self.tlc.flux[ok]/self.tlc.TM.instrument_model()[ok],
+                            uncertainty=self.tlc.uncertainty[ok], bin=binsize,
+                            **bkw)
                 plt.sca(self.ax_residuals)
-                plotbinned(time[ok], ppm*self.tlc.residuals()[ok],uncertainty=self.tlc.uncertainty[ok], bin=binsize, zorder=zorder)
+                plotbinned(time[ok], ppm*self.tlc.residuals()[ok],
+                            uncertainty=ppm*self.tlc.uncertainty[ok],
+                            bin=binsize, **bkw)
                 plt.sca(self.ax_instrument)
-                plotbinned(time[ok], ppm*self.tlc.instrumental()[ok], uncertainty=self.tlc.uncertainty[ok], bin=binsize, zorder=zorder)
+                plotbinned(time[ok], ppm*self.tlc.instrumental()[ok],
+                            uncertainty=ppm*self.tlc.uncertainty[ok], bin=binsize, **bkw)
 
             self.tlc.points_correlations = {}
             kw['s'] = 10
-            kw['alpha'] *= 0.5
             for k in self.ax_correlations.keys():
                 #self.ax_correlations[k].plot(ppm*self.tlc.instrumental()[ok], self.tlc.externalvariables[k][ok], **kw)[0]
                 #self.ax_timeseries[k].plot( time[ok], self.tlc.externalvariables[k][ok], **kw)
@@ -195,17 +217,21 @@ class DiagnosticsPlots(Plot):
 
 
         # plot histograms of the residuals
+        kw = {'color':self.tlc.colors['points'], 'linewidth':3, 'alpha':1.0}
+
         expectation = [0, ppm*np.mean(self.tlc.uncertainty)]
         zachopy.oned.plothistogram(ppm*self.tlc.instrumental()[ok], nbins=100, ax=self.ax_instrument_histogram,expectation =expectation , **kw)
         zachopy.oned.plothistogram(ppm*self.tlc.residuals()[ok], nbins=100, ax=self.ax_residuals_histogram, expectation =expectation , **kw)
 
+        try:
+            # plot binned RMS
 
-        # plot binned RMS
-        zachopy.oned.plotbinnedrms(self.tlc.residuals()[ok], ax=self.ax_binnedrms, yunits=1e6,  **kw)
+            zachopy.oned.plotbinnedrms(self.tlc.residuals()[ok], ax=self.ax_binnedrms, yunits=1e6,  **kw)
 
-        # plot the ACF
-        zachopy.oned.plotautocorrelation(self.tlc.residuals()[ok], ax =self.ax_acf,  **kw)
-
+            # plot the ACF
+            zachopy.oned.plotautocorrelation(self.tlc.residuals()[ok], ax =self.ax_acf,  **kw)
+        except AttributeError:
+            pass
 
         # print text about the fit
 
@@ -230,7 +256,11 @@ class DiagnosticsPlots(Plot):
         self.ax_residuals.set_ylim(-scale*ppm, scale*ppm)
         self.ax_instrument.set_ylim(-scale*ppm, scale*ppm)
 
-        self.ax_residuals.set_xlim(np.min(time), np.max(time))
+        if mintimespan is None:
+            self.ax_residuals.set_xlim(np.min(time), np.max(time))
+        else:
+            self.ax_residuals.set_xlim(np.mean(time)-mintimespan/2.0, np.mean(time)+mintimespan/2.0)
+
         buffer = 0.0075
         self.ax_corrected.set_ylim(1.0 - self.tlc.TM.planet.depth - buffer, 1.0 + buffer)
         self.ax_raw.set_ylim(1.0 - self.tlc.TM.planet.depth - buffer*3, 1.0 + buffer*3)
@@ -239,6 +269,6 @@ class DiagnosticsPlots(Plot):
         if directory is None:
             directory = self.tlc.TM.directory
 
-        filename = directory + self.tlc.name.translate(None, '!@#$%^&*()<>') + '_lightcurveDiagnostics.pdf'
-        self.speak('saving light curve diagnostic plot to {0}'.format(filename))
-        plt.savefig(filename)
+        #filename = directory + self.tlc.name.translate(None, '!@#$%^&*()<>') + '_lightcurveDiagnostics.pdf'
+        #self.speak('saving light curve diagnostic plot to {0}'.format(filename))
+        #plt.savefig(filename)

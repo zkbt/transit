@@ -368,6 +368,7 @@ class Synthesizer(Talker):
             # calculate the density prior
             prior = -0.5*((self.tms[0].planet.stellar_density - central)/width)**2
 
+            self.speak("{central}, {width}, {prior}".format(**locals()))
             # add it to the lnprior
             lnp +=  prior
 
@@ -429,7 +430,7 @@ class Synthesizer(Talker):
 
         # don't let infinitely bad likelihoods break code
         if np.isfinite(lnlikelihood) == False:
-            lnlikelihood = -1e9
+            lnlikelihood = -np.inf
 
         # initialize an empty constraint, which could freak out if there's something bad about this fit
         constraints = 0.0
@@ -441,9 +442,10 @@ class Synthesizer(Talker):
 
             p = parameter['parameter'][0]
             # if a parameter is outside its allowed range, then make the constraint very strong!
-            inside = (p.value < p.limits[1]) & (p.value > p.limits[0])
+            inside = (p.value <= p.limits[1]) & (p.value >= p.limits[0])
             if inside == False:
                 constraints -= np.inf
+                assert(constraints ==0 )
 
         jitterconstraint = 0.0
         for rvc in self.rvcs:
@@ -522,7 +524,11 @@ class Fit(Synthesizer):
                 #self.speak('!!!!!!!!!!!!!!!!')
 
         # incorporate all modifications that were made to the light curves
-        filename = self.directory + 'modifications.npy'
+        #kludge!
+        if self.__class__.__name__ == 'MCMC':
+            filename = self.directory + 'lm/modifications.npy'
+        else:
+            filename = self.directory + 'modifications.npy'
         modifications = np.load(filename)
         self.speak('loaded TLC modifications from {0}'.format(filename))
         assert(len(modifications) == len(self.tlcs))
@@ -677,7 +683,7 @@ class MCMC(Fit):
             assert(remake==False)
             self.load()
             return
-        except IOError:
+        except (IOError,AssertionError):
             self.speak('could not load this MCMC fit, remaking it from scratch')
 
         # do an LM minization to clip outliers and rescale uncertainties
@@ -848,32 +854,7 @@ class MCMC(Fit):
                 after = time.clock()
                 self.speak('it took {0} seconds'.format(after-before))
 
-                #
-                best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
-                self.fromArray(best)
-
-                if len(self.tlcs) > 0:
-                    self.speak('creating a plot of the light curves that have been fitted')
-                    before = time.clock()
-                    transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
-                    if save:
-                        plt.savefig(output + '_everything.pdf')
-                    after = time.clock()
-                    self.speak('it took {0} seconds'.format(after-before))
-
-                if len(self.rvcs) > 0:
-                    best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
-                    self.fromArray(best)
-
-                    self.speak('creating a plot of the RVs that have been fitted')
-                    before = time.clock()
-                    ylim=[-15, 15]
-                    kw = dict(ylim=ylim)
-                    p = transit.RVPhasedPlot(rvcs=self.rvcs, **kw)
-                    plt.savefig(output + '_rv.pdf')
-                    after = time.clock()
-                    self.speak('it took {0} seconds'.format(after-before))
-
+                self.plotData(output=output)
                 #bla = self.input('bla')
                 # plot
                 '''for tlc in self.tlcs:
@@ -893,3 +874,41 @@ class MCMC(Fit):
         # set the parameter to their MAP values
         best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
         self.fromArray(best)
+
+    def fromPDF(self, option='best'):
+        self.speak('drawing {0} sample from PDF'.format(option))
+        values = self.pdf.drawSample(keys=[p['code'] for p in self.parameters], option=option)
+        self.fromArray(values)
+
+    def plotData(self, output=None):
+        if output is None:
+            output = self.directory + 'data'
+        #
+        try:
+            best = self.sampler.flatchain[np.argmax(self.sampler.flatlnprobability)]
+        except AttributeError:
+            orderednames = [p['code'] for p in self.parameters]
+        self.fromPDF(option='best')
+
+        if len(self.tlcs) > 0:
+            self.speak('creating a plot of the light curves that have been fitted')
+            before = time.clock()
+            try:
+                transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
+                plt.savefig(output + '_everything.pdf')
+            except KeyError:
+                pass
+            after = time.clock()
+            self.speak('it took {0} seconds'.format(after-before))
+
+        if len(self.rvcs) > 0:
+            self.fromPDF(option='best')
+
+            self.speak('creating a plot of the RVs that have been fitted')
+            before = time.clock()
+            ylim=[-15, 15]
+            kw = dict(ylim=ylim)
+            p = transit.RVPhasedPlot(rvcs=self.rvcs, **kw)
+            plt.savefig(output + '_rv.pdf')
+            after = time.clock()
+            self.speak('it took {0} seconds'.format(after-before))
