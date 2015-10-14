@@ -1,7 +1,7 @@
 from Plots import Plot
 from imports import *
 from zachopy.painting import ink_errorbar
-import zachocolor.cmaps
+import zachopy.cmaps
 
 scale = 1e3
 class RVPhasedPlot(Plot):
@@ -40,7 +40,7 @@ class RVPhasedPlot(Plot):
         for rvc in rvcs:
             x, y, yerr = self.x(rvc), self.y(rvc), self.yerr(rvc)
 
-            cmap = zachocolor.cmaps.one2another(bottom='white', top='orangered')
+            cmap = zachopy.cmaps.one2another(bottom='white', top='orangered')
 
             kw = dict(linewidth=0, elinewidth=1.5, capthick=1.5, marker='o', markersize=4, markeredgecolor='none')
 
@@ -54,7 +54,7 @@ class RVPhasedPlot(Plot):
 
             ghosts = [-1,1]
             for ghost in ghosts:
-                bwcmap = zachocolor.cmaps.one2another(bottom='white', top='silver')
+                bwcmap = zachopy.cmaps.one2another(bottom='white', top='silver')
                 ink_errorbar(x+ ghost*rvc.TM.planet.period.value, y, yerr, colors=bwcmap(weights), zorder=weights, **kw)#grayscale=True,
 
             tm = rvc.TM
