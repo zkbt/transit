@@ -858,6 +858,7 @@ class MCMC(Fit):
                 self.speak('it took {0} seconds'.format(after-before))
 
                 self.plotData(output=output)
+                plt.close('all')
                 #bla = self.input('bla')
                 # plot
                 '''for tlc in self.tlcs:
