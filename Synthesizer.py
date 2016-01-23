@@ -6,15 +6,15 @@ import transit
 
 
 def makeCode(d):
-    # convert a parameter dictionary into a string label
+    '''convert a parameter dictionary into a string label'''
     return '{name}@{telescope}@{epoch}'.format(**d)
 
 
 class Synthesizer(Talker):
-    '''Combine multiple TLCs (and maybe RVCs) together, a fit them simultaneously.'''
+    '''combine multiple TLCs (and maybe RVCs) together, a fit them simultaneously.'''
 
     def __init__(self, tlcs=[], rvcs=[], **kwargs):
-        '''Synthesizes a list of transit light curves (and their models),
+        '''synthesizes a list of transit light curves (and their models),
             allowing them to be fit jointly.'''
 
         # setup talker
@@ -24,6 +24,8 @@ class Synthesizer(Talker):
         self.tlcs = tlcs
         self.rvcs = rvcs
         self.data = []
+
+        # define self.data as the combination of all LCs and RVCs
         try:
             self.data.extend(self.tlcs)
         except TypeError:
@@ -33,17 +35,22 @@ class Synthesizer(Talker):
         except TypeError:
             pass
 
+        # keep track of the list of transit models, associated with each data
         self.tms = [thing.TM for thing in self.data]
 
+        # determine the free parameters of the fit
         self.findParameters()
 
     @property
     def n(self):
+        '''the total number of datapoints (both transit and RV)'''
         return self.nlc + self.nrv
 
     @property
     def nlc(self):
-        # the number of data-points in the light curves
+        '''the number of data-points in the light curves'''
+
+        # loop over all TLCs
         tot = 0
         for tlc in self.tlcs:
             tot += len(tlc.bjd)
@@ -51,7 +58,9 @@ class Synthesizer(Talker):
 
     @property
     def nrv(self):
-        # the number of data-points in the radial velocity curves
+        '''the number of data-points in the radial velocity curves'''
+
+        # loop over all RVCs
         tot = 0
         for rvc in self.rvcs:
             tot += len(rvc.bjd)
@@ -60,7 +69,7 @@ class Synthesizer(Talker):
 
     @property
     def m(self):
-        # the number of parameters that are going to be fit
+        '''the number of parameters that are going to be fit'''
         return len(self.parameters)
 
     def findParameters(self):
@@ -68,6 +77,7 @@ class Synthesizer(Talker):
         them together into a big list with a fixed order, which can be used to
         set parameters when called by a fitter like MPFIT or emcee.'''
 
+        # loop over data chunks (of either TLC or RVC type)
         self.parameters = []
         for i in range(len(self.data)):
             tm, data = self.tms[i], self.data[i]
@@ -243,17 +253,9 @@ class Synthesizer(Talker):
             # calculate the deviates for this one TLC
             devs = (tlc.flux[ok] - tlc.TM.model()[ok])/tlc.effective_uncertainty[ok]
 
+            # extend the list of deviates
             combined_deviates.extend(devs)
 
-        #assert(self.densityprior == False)
-        #assert(self.densityprior is not None)
-        if (self.densityprior is not None) & (len(combined_deviates) > 0):
-            central, width = self.densityprior
-            #if len(self.tms) > 1:
-            #    assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
-            density_prior = (self.tms[0].planet.stellar_density - central)/width
-            combined_deviates.append(density_prior)
-        #print density_prior
         # mpfit wants a list with the first element containing a status code
         return [status,combined_deviates]
 
@@ -282,78 +284,122 @@ class Synthesizer(Talker):
         return [status,combined_deviates]
 
     def deviates(self, p, fjac=None, plotting=False):
+
+        # create empty deviates
         dev = []
+
+        # add the light curve deviates
         lcstatus, lightcurve = self.deviatesTLC(p, fjac=fjac, plotting=plotting)
         dev.extend(lightcurve)
+
+        # add the radial velocity deviates
         rvstatus, rv = self.deviatesRVC(p, fjac=fjac, plotting=plotting)
         dev.extend(rv)
 
+        # mpfit wants a list with the first element containing a status code
+        return [(lcstatus | rvstatus), np.array(dev) ]
 
+    def conjugatepriors_as_deviates(self):
+
+        status = 0
+        effective_deviates = []
+
+        # if specified, add a stellar density prior
+        if (self.densityprior is not None):
+            central, width = self.densityprior
+            value = self.tms[0].planet.stellar_density
+            prior = (value - central)/width
+            effective_deviates.append(density_prior)
+
+        # if specified, add period prior
         if (self.periodprior is not None):
             central, width = self.periodprior
             value = self.tms[0].planet.period.value
             prior = (value - central)/width
-            dev.append(prior)
+            effective_deviates.append(prior)
 
+        # if specified, add t0 prior
         if (self.t0prior is not None):
             central, width = self.t0prior
             value = self.tms[0].planet.t0.value
             prior = (value - central)/width
-            dev.append(prior)
+            effective_deviates.append(prior)
 
-        return [(lcstatus | rvstatus), np.array(dev) ]
+        return [status, np.array(effective_deviates)]
 
-    def gp_lnprob(self, p):
+    def deviates_including_priors(self, p, fjac=None, plotting=False):
 
-        # update all the parameters inside the models, from the array
-        #   these include all hyperparameters too
+        dev = []
+
+        # get the data deviates
+        datastatus, data = self.deviates(p, fjac=fjac, plotting=plotting)
+        dev.extend(data)
+        # get the conjugate prior deviates
+        cpstatus, cp = self.conjugatepriors_as_deviates()
+        dev.extend(cp)
+
+        return [(datastatus | cpstatus), np.array(dev) ]
+
+    def lnprob(self, p):
+        """return the log posterior for a given parameter set"""
+
+        try:
+            self.budget['iteration'] += 1
+        except (AttributeError,KeyError):
+            self.budget = {}
+            self.budget['iteration'] = 0
+
+        lnp = 0.0
+
+
+        # update all the parameters inside the models
         self.fromArray(p)
 
-        #for p in self.parameters:
-        #    self.speak('{0} = {1}'.format(p['parameter'][0].name, p['parameter'][0].value))
-
+        # calculate the priors (including parameter region constraints)
         lnprior = self.lnprior()
-        if np.isfinite(lnprior) == False:
-            return -np.inf
+        lnp += lnprior
 
-        # loop over the tlcs
-        lnlikelihood = 0
-        for tlc in self.tlcs:
-            # the TLC should already know what its hyperparameters are
-            if np.sum(tlc.ok) > 0:
-                lnlikelihood += tlc.gp_lnprob()
+        # if the priors are already zero, skip the likelihood calculation
+        if np.isfinite(lnp) == False:
+            return lnp
 
-        lnprob = lnprior + lnlikelihood
-        #self.speak('lnlikelihood = {lnlikelihood:10.1f}, lnprior = {lnprior:10.1f}, lnprob = {lnprob:10.1f}'.format(**locals()))
+        lnlikelihood = self.lnlikelihood(p)
+        lnp += lnlikelihood
 
-        if len(self.rvcs) > 0:
-            for rvc in self.rvcs:
+    def lnlikelihood(p):
+        '''return the lnlikelihood, using whichever method is set'''
 
-                # weight only the good points
-                ok = (rvc.bad == 0).nonzero()
 
-                # calculate the deviates for this one TLC
-                devs = (rvc.rv[ok] - rvc.TM.stellar_rv()[ok])/rvc.effective_uncertainty[ok]
-                chisq = np.sum(devs**2)
-                jitterpenalty = np.sum(np.log(1.0/rvc.effective_uncertainty[ok]))
+        # calculate the likelihood, using the appropriate method
+        lnlikelihood = self.__dict__[self.likelihoodtype + '_lnlikelihood'](p)
 
-                lnprob += -chisq/2.0 + jitterpenalty
+        # add additional terms
+        lnlikelihood += self.additionalterms()
 
-        assert(np.isfinite(lnprob))
-        return lnprob
+        return lnlikelihood
 
     def lnprior(self):
+        '''return the prior probability of the current parameter set.'''
 
+        # start at 0.0
         lnp = 0
 
+        # return -np.inf if outside limits
         for p in self.parameters:
             par = p['parameter'][0]
             if par.value < par.limits[0]:
+                key = '{0} out of limits'.format(par.name)
+                self.budget[key] = -np.inf
                 return -np.inf
             if par.value > par.limits[1]:
+                key = '{0} out of limits'.format(par.name)
+                self.budget[key] = -np.inf
                 return -np.inf
 
+        # return -np.inf if eccentricity is non-physical
         if (self.tms[0].planet.ecosw.value**2 + self.tms[0].planet.esinw.value**2) > 1.0:
+            key = 'eccentricity out of limits'
+            self.budget[key] = -np.inf
             return -np.inf
 
         # incorporate density prior, if need be
@@ -370,6 +416,10 @@ class Synthesizer(Talker):
 
             self.speak("{central}, {width}, {prior}".format(**locals()))
             # add it to the lnprior
+
+            key = 'density prior'
+            self.budget[key] = prior
+
             lnp +=  prior
 
         # incorporate a prior on the period, if need be
@@ -380,6 +430,9 @@ class Synthesizer(Talker):
             # calculate prior
             value = self.tms[0].planet.period.value
             prior = -0.5*((value - central)/width)**2
+
+            key = 'period prior'
+            self.budget[key] = prior
 
             # append it
             lnp += prior
@@ -394,6 +447,9 @@ class Synthesizer(Talker):
             value = self.tms[0].planet.t0.value
             prior = -0.5*((value - central)/width)**2
 
+            key = 't0 prior'
+            self.budget[key] = prior
+
             # append it
             lnp += prior
 
@@ -404,59 +460,63 @@ class Synthesizer(Talker):
                 value = self.tms[0].planet.e
                 #####
 
+                key = 'eccentricity prior'
+                self.budget[key] = prior
+
                 prior = np.log(value**(a-1)*(1-value)**(b-1)/scipy.special.beta(a,b))
                 lnp += prior
 
         assert(np.isfinite(lnp))
         return lnp
 
-    ##@profile
-    def lnprob(self, p):
-        """Return the log posterior, calculated from the deviates function (which may have included some conjugate Gaussian priors.)"""
+    def additionalterms(self):
 
-        if self.gp:
-            return self.gp_lnprob(p)
+        extra = 0.0
+        # if using additative jitter for the RV's, need penalty
+        jitterconstraint = 0.0
+        for rvc in self.rvcs:
+            # weight only the good points
+            ok = (rvc.bad == 0).nonzero()
+            thisjitter += np.sum(np.log(1.0/rvc.effective_uncertainty[ok]))
+            key = 'non-chisq jitter term from {0}'.format(rvc.name)
+            self.budget[key] = thisjitter
+            jitterconstraint += thisjitter
+        extra += jitterconstraint
 
+        return extra
+
+    def white_lnlikelihood(self,p):
+        '''return the white lnlikelihood for a parameter set'''
+
+        # calculate the chisq (note "effective_uncertainty" is used in deviates)
         chisq = np.sum(self.deviates(p)[-1]**2)
-        #N = np.sum(self.TLC.bad == 0)
 
-        # sum the deviates into a chisq-like thing
-        #lnlikelihood = -N * np.log(self.instrument.rescaling.value) - chisq/self.instrument.rescaling.value**2
-
-
-
-        lnlikelihood = - chisq/2.0#/self.instrument.rescaling.value**2
-
+        # calculate the lnlikelihood from the chisq
+        lnlikelihood = - chisq/2.0
 
         # don't let infinitely bad likelihoods break code
         if np.isfinite(lnlikelihood) == False:
             lnlikelihood = -np.inf
 
-        # initialize an empty constraint, which could freak out if there's something bad about this fit
-        constraints = 0.0
+        key = 'white lnlikelihood (-chisq/2)'
+        self.budget[key] = lnlikelihood
 
+        return lnlikelihood
 
+    def gp_lnlikelihood(self, p):
+        '''return the GP lnlikelihood for a parameter set'''
 
-        # loop over the parameters
-        for parameter in self.parameters:
+        # loop over the tlcs
+        lnlikelihood = 0
+        for tlc in self.tlcs:
+            # the TLC should already know what its hyperparameters are
+            if np.sum(tlc.ok) > 0:
+                lnlikelihood += tlc.gp_lnlikelihood()
 
-            p = parameter['parameter'][0]
-            # if a parameter is outside its allowed range, then make the constraint very strong!
-            inside = (p.value <= p.limits[1]) & (p.value >= p.limits[0])
-            if inside == False:
-                constraints -= np.inf
-                assert(constraints ==0 )
+        key = 'GP lnlikelihood'
+        self.budget[key] = lnlikelihood
 
-        jitterconstraint = 0.0
-        for rvc in self.rvcs:
-            jitterconstraint += np.sum(np.log(1.0/rvc.effective_uncertainty))
-            #self.speak('for jitter of {0}, penalty is {1}'.format(rvc.jitter, jitterconstraint))
-
-        # return the constrained likelihood
-        #print self.tms[0].planet.stellar_density, density_prior
-        return lnlikelihood + constraints + jitterconstraint# + density_prior
-
-
+        return lnlikelihood
 
     @property
     def label(self):
@@ -470,10 +530,20 @@ class Synthesizer(Talker):
                     len(self.rvcs))
 
 class Fit(Synthesizer):
-    def __init__(self, tlcs=[], rvcs=[], directory=None, gp=False, **kwargs):
-        self.gp = gp
+    def __init__(self,
+                    tlcs=[],
+                    rvcs=[],
+                    directory=None,
+                    likelihoodtype='white',
+                    **kwargs):
+
+        # keep track of which kinds of likelihood we're using
+        self.likelihoodtype = likelihoodtype
+
+        # create a basic synthesizer
         Synthesizer.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
 
+        # assign a directory for this fit
         if directory == None:
             base = 'synthesized/'
             zachopy.utils.mkdir(base)
@@ -482,7 +552,9 @@ class Fit(Synthesizer):
         zachopy.utils.mkdir(self.directory)
 
     def save(self):
-        #Save this fit, so it be reloaded quickly next time.
+        '''save this fit, so it be reloaded quickly next time.'''
+
+        # create a directory, if need be
         zachopy.utils.mkdir(self.directory)
 
         # save the PDF, which contains all the information about the fit
@@ -493,18 +565,18 @@ class Fit(Synthesizer):
         # save a list dictionaries saying how the light curve has been modified
         modifications = []
         for tlc in self.tlcs:
-            print tlc
             this = dict(name=tlc.name,
                         rescaling=tlc.rescaling,
                         chisq=tlc.chisq(),
-                        ok=tlc.bad == False)
+                        ok=(tlc.bad == False))
             modifications.append(this)
         filename = self.directory + 'modifications.npy'
         np.save(filename, modifications)
         self.speak('saved modifications to {0}'.format(filename))
 
     def load(self):
-        #Save this fit, so it be reloaded quickly next time.
+        '''load a fit from a file, including parameters and LC modifcations'''
+
         self.speak('attempting to load from {0}'.format(self.directory))
         #self.speak('  the PDF')
         self.pdf = PDF.load(self.directory + 'pdf.npy')
@@ -520,11 +592,10 @@ class Fit(Synthesizer):
                 loaded = loaded[0]
                 p.value = loaded.value
                 p.uncertainty = loaded.uncertainty
-                #self.speak('assigned {0} to {1}'.format(loaded, self.parameters[i]['code']))
-                #self.speak('!!!!!!!!!!!!!!!!')
+
 
         # incorporate all modifications that were made to the light curves
-        #kludge!
+        # KLUDGE!
         if self.__class__.__name__ == 'MCMC':
             filename = self.directory + 'lm/modifications.npy'
         else:
@@ -533,6 +604,7 @@ class Fit(Synthesizer):
         self.speak('loaded TLC modifications from {0}'.format(filename))
         assert(len(modifications) == len(self.tlcs))
 
+        # loop over the modications, and apply them
         for i in range(len(self.tlcs)):
             this = modifications[i]
             tlc = self.tlcs[i]
@@ -541,13 +613,13 @@ class Fit(Synthesizer):
             tlc.rescaling = this['rescaling']
             tlc.bad = this['ok'] == False
             assert(tlc.bad.shape == tlc.flux.shape)
-            #assert(tlc.chisq() == this['chisq'])
 
         self.speak('applied the outlier clipping and rescaling')
 
 
     def setRescaling(self):
-        # after a fit has been performed (and applied!), rescale all light curves to have a chisq of 1
+        '''after a fit has been performed (and applied!),
+            rescale all light curves to have a chisq of 1'''
 
         # calculate a chisq rescaling for each tlc
         for tlc in self.tlcs:
@@ -559,26 +631,50 @@ class Fit(Synthesizer):
             chisq = tlc.chisq()
             dof = len(ok) - self.m*(0.0 + len(ok))/self.n
             reduced_chisq = chisq/dof
-            self.speak('{0} has a reduced chisq of {1} ({2} dof)'.format(tlc.name, chisq, dof))
+            self.speak('{0} has a reduced chisq of {1} ({2} dof)'.format(
+                        tlc.name, chisq, dof))
 
 
             tlc.rescaling = np.maximum(np.sqrt(reduced_chisq), 1)
-            self.speak('rescaling original errors by {0} for next fit'.format(tlc.rescaling))
+            self.speak('rescaling original errors by {0} for next fit'.format(
+                        tlc.rescaling))
 
-            if self.gp == False:
+            # KLUDGE!
+            if self.likelihoodtype == 'white':
                 tlc.beta = tlc.bestBeta()
-                self.speak('set the beta to be {0} for next fit'.format(tlc.beta))
+                self.speak('set the beta to be {0} for next fit'.format(
+                    tlc.beta))
 
 
 class LM(Fit):
+    '''perform a fit using LM optimization. this can only handle
+        likelihoodtype = 'white', conjugate priors only, and no RV jitter'''
+
     def __init__(self, tlcs=[], rvcs=[], label='', **kwargs):
+
+        # initialize the basic Fit
         Fit.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
+
+        # specify the directory for the LM
         self.directory = self.directory + 'lm/'
         zachopy.utils.mkdir(self.directory)
 
-    def fit(self, plot=False, quiet=False, firstpass=True, secondpass=False, remake=False, densityprior=None, periodprior=None, t0prior=None, eprior=None, **kwargs):
-        '''Use LM (mpfit) to find the maximum probability parameters, and a covariance matrix.'''
+    def fit(self,   plot=False,
+                    quiet=False,
+                    firstpass=True,
+                    secondpass=False,
+                    remake=False,
+                    densityprior=None,
+                    periodprior=None,
+                    t0prior=None,
+                    eprior=None,
+                    **kwargs):
+        '''use LM (mpfit) to find the maximum probability parameters,
+            and a covariance matrix. options for first, second, third pass
+            are used to loop through several times to reject outliers and
+            rescale uncertainties'''
 
+        # either reload this fit if it's already been performed, or recreate it
         try:
             assert(remake == False)
             self.load()
@@ -586,6 +682,7 @@ class LM(Fit):
         except (AssertionError,IOError):
             self.speak('could not load this fit, making it from scratch!')
 
+        # if priors on physical parameters are being used, keep track of them
         self.densityprior=densityprior
         self.periodprior=periodprior
         self.t0prior=t0prior
@@ -599,12 +696,15 @@ class LM(Fit):
 
         # perform the LM fit, to get best fit parameters and covariance matrix
         self.speak('running mpfit minimization')
-        self.mpfitted = mpfit.mpfit(self.deviates, p0, parinfo=parinfo, quiet=quiet)
+        self.deviates_including_priors(p0, plotting=True)
+        self.mpfitted = mpfit.mpfit(self.deviates_including_priors, p0,
+                                    parinfo=parinfo, quiet=quiet)
 
         # set the parameters to their fitted values
         self.fromArray(self.mpfitted.params)
 
-        # on the first pass, reject outliers and rescale the errors (roughly, to set relative weight of datasets)
+        # on the first pass, reject outliers and rescale the errors
+        # (roughly, just to set relative weights of datasets)
         if firstpass:
 
             # first, clip the outliers (so rescaling will be more meaningful)
@@ -616,35 +716,46 @@ class LM(Fit):
                 # where are the residuals beyond 3 sigma?
                 outlierthreshold = 3.0
                 r = tlc.residuals()[ok]
-                outlier = (np.abs(r) > outlierthreshold*1.48*zachopy.oned.mad(r))
+                sigma = 1.48*zachopy.oned.mad(r)
+                outlier = (np.abs(r) > outlierthreshold*sigma)
                 tlc.bad[ok] = tlc.bad[ok] | (tlc.flags['outlier']*outlier)
-                self.speak("identified {0} new points as bad; refitting without them".format(np.sum(outlier)))
+                self.speak("identified {0} new points as bad"
+                            "refitting without them".format(np.sum(outlier)))
 
             # rescaling the uncertainties
             self.setRescaling()
-            # refit, after the outliers have been rejected
-            self.fit(plot=plot, remake=remake, quiet=quiet, firstpass=False, secondpass=True, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior, **kwargs)
+
+            # refit, after the outliers have been rejected, on second pass
+            self.fit(plot=plot,
+                    remake=remake, quiet=quiet,
+                    firstpass=False, secondpass=True,
+                    densityprior=self.densityprior,
+                    periodprior=self.periodprior,
+                    t0prior=self.t0prior,
+                    **kwargs)
             return
 
-        # on second pass, simply reset the rescalings, now that one fit has been done with ~correct weights
+        # on second pass, simply reset the rescalings
+        # (one fit has already been done with ~correct weights)
         if secondpass:
             # rescaling the uncertainties
             self.setRescaling()
 
             # refit, after the outliers have been rejected
-            self.fit(remake=remake, plot=plot, quiet=quiet, firstpass=False, secondpass=False, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior, **kwargs)
+            self.fit(remake=remake, plot=plot, quiet=quiet,
+                    firstpass=False, secondpass=False,
+                    densityprior=self.densityprior,
+                    periodprior=self.periodprior,
+                    t0prior=self.t0prior, **kwargs)
             return
 
-        # store the covariance matrix of the fit, and the 1D uncertainties on the parameters
+        # store the covariance matrix and 1D uncertainties on the parameters
         self.covariance = self.mpfitted.covar
         for i in range(self.m):
             for p in self.parameters[i]['parameter']:
                 p.uncertainty = np.sqrt(self.covariance[i,i])
 
-        # pull out the parameters that actually varied and create a PDF object out of them
-        # interesting = (self.covariance[range(self.m), range(self.m)] > 0).nonzero()[0]
-
-        # include all parameters in the covariance matrix, even those with 0 uncertainty
+        # include all parameters in the covariance matrix, even with 0 unc.
         interesting = np.arange(self.m)
 
         # create a PDF structure out of this covariance matrix
@@ -656,10 +767,14 @@ class LM(Fit):
         # print the results
         self.pdf.printParameters()
 
+        # save this fit
         self.save()
 
 
 class MCMC(Fit):
+    '''perform a fit using MCMC exploration. this object can handle
+        likelihoodtype = 'white' | 'gp', any priors, and RV jitter'''
+
     def __init__(self, tlcs=[], rvcs=[], **kwargs):
         Fit.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
         self.directory = self.directory + 'mcmc/'
