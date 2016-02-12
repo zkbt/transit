@@ -98,7 +98,7 @@ class IndividualPlots(Plot):
             except KeyError:
                 continue
 
-            if self.synthesizer.gp:
+            if self.synthesizer.likelihoodtype == 'red_gp':
                 points = tlc.gp_points()
             else:
                 points = tlc.points()
@@ -118,7 +118,7 @@ class IndividualPlots(Plot):
             #plotbinned(points['t'], points['raw'], color=tlc.color, marker='o', markersize=10, alpha=1)
 
 
-            if self.synthesizer.gp:
+            if self.synthesizer.likelihoodtype == 'red_gp':
                 lines = tlc.gp_lines(mean=True)
             else:
                 lines = tlc.lines()
@@ -185,7 +185,7 @@ class IndividualPlots(Plot):
                 except KeyError:
                     continue
 
-                if self.synthesizer.gp:
+                if self.synthesizer.likelihoodtype == 'red_gp':
                     extralines = tlc.gp_lines(mean=False)
                     #extralines = tlc.gp_lines(mean=True)
                 else:

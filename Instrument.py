@@ -70,8 +70,8 @@ class Instrument(Parameters):
 				try:
 					# try to return a prenormalized timeseries
 					ev = tlc._normalized[k]
-
-				except (AttributeError,KeyError):
+					assert(len(ev) == len(tlc.flux))
+				except (AttributeError,KeyError,AssertionError):
 					# if that's impossible, calculate and store a normalized timeseries for this key
 
 					# make the _normalized dictionary exists

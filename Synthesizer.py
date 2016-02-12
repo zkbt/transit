@@ -66,11 +66,24 @@ class Synthesizer(Talker):
             tot += len(rvc.bjd)
         return tot
 
-
     @property
     def m(self):
         '''the number of parameters that are going to be fit'''
         return len(self.parameters)
+
+    def registerParameter(self, parameter, data):
+        '''add a new parameter to the list this synthesizer cares about'''
+        this = dict(name=parameter.name,
+                    telescope=data.telescope,
+                    epoch=data.epoch,
+                    parameter=[parameter])
+        this['code'] = makeCode(this)
+        self.parameters.append(this)
+
+    def popParameter(self, code):
+        '''remove a parameter from the synthesizer's list'''
+        codes = [par['code'] for par in self.parameters]
+        return self.parameters.pop(codes.index(code))
 
     def findParameters(self):
         '''Search through all the TMs, and find all floating parameters. Merge
@@ -82,20 +95,17 @@ class Synthesizer(Talker):
         for i in range(len(self.data)):
             tm, data = self.tms[i], self.data[i]
             for p in tm.parameters:
-
+                self.registerParameter(p, data)
                 this = dict(name=p.name,                # general name of par.
                             telescope=data.telescope,    # the telescope
                             epoch=data.epoch,            # the epoch
                             parameter=[p])              # list of 1 or more
                 this['code'] = makeCode(this)           # set the code
-                self.parameters.append(this)
 
         self.speak('the list of all parameters is:')
         for i in range(len(self.parameters)):
             p = self.parameters[i]
             self.speak('   {0} -- {1}'.format(i, p['code']))
-
-
 
     def printParameters(self):
         '''Loop through and print all the parameters.'''
@@ -109,19 +119,19 @@ class Synthesizer(Talker):
             #    self.speak("{i}: {code} (used {n} times) {par}".format(i=i, code=p['code'], par=oneParameter(p), n=n))
 
     def toArray(self):
-
+        '''output parameters to (array of values, array of parinfos)'''
         par = np.array([p['parameter'][0].value for p in self.parameters])
         parinfo = [p['parameter'][0].parinfo for p in self.parameters]
         return par, parinfo
 
     def fromArray(self, a, verbose=False):
+        '''set the parameters, from an array'''
         assert(len(a) == self.m)
         for i in range(self.m):
             for p in self.parameters[i]['parameter']:
                 p.value = a[i]
                 if verbose:
                     self.speak('{0} = {1}'.format(p.name, p.value))
-
 
     def tieAcrossEpochs(self, name):
         '''Merge together all parameters matching a particular name
@@ -229,7 +239,6 @@ class Synthesizer(Talker):
             this['code'] = makeCode(this)
             self.parameters.append(this)
 
-
     def deviatesTLC(self, p, fjac=None, plotting=False):
         '''Return the normalized deviates (an input for mpfit), collected from
             all the transit models.'''
@@ -284,7 +293,7 @@ class Synthesizer(Talker):
         return [status,combined_deviates]
 
     def deviates(self, p, fjac=None, plotting=False):
-
+        '''return the (data) deviates, given a parameter array'''
         # create empty deviates
         dev = []
 
@@ -300,7 +309,7 @@ class Synthesizer(Talker):
         return [(lcstatus | rvstatus), np.array(dev) ]
 
     def conjugatepriors_as_deviates(self):
-
+        '''return conjugate priors, in the form of deviates'''
         status = 0
         effective_deviates = []
 
@@ -328,6 +337,8 @@ class Synthesizer(Talker):
         return [status, np.array(effective_deviates)]
 
     def deviates_including_priors(self, p, fjac=None, plotting=False):
+        '''return the deviates, combining data and priors;
+            (the equivalent of lnprob = lnlikelihood + lnprior)'''
 
         dev = []
 
@@ -366,12 +377,24 @@ class Synthesizer(Talker):
         lnlikelihood = self.lnlikelihood(p)
         lnp += lnlikelihood
 
-    def lnlikelihood(p):
+
+        key = 'lnprob'
+        self.budget[key] = lnp
+        return lnp
+
+    def lnlikelihood(self, p):
         '''return the lnlikelihood, using whichever method is set'''
 
 
         # calculate the likelihood, using the appropriate method
-        lnlikelihood = self.__dict__[self.likelihoodtype + '_lnlikelihood'](p)
+        if self.likelihoodtype == 'white':
+            lnlikely = self.white_lnlikelihood
+        elif self.likelihoodtype == 'red_beta':
+            lnlikely = self.white_lnlikelihood
+            # (same as above, but effective_uncertainty includes beta > 1)
+        elif self.likelihoodtype == 'red_gp':
+            lnlikely = self.gp_lnlikelihood
+        lnlikelihood = lnlikely(p)
 
         # add additional terms
         lnlikelihood += self.additionalterms()
@@ -403,13 +426,11 @@ class Synthesizer(Talker):
             return -np.inf
 
         # incorporate density prior, if need be
-        if (self.densityprior is not None):
+        try:
+            assert(self.densityprior is not None)
             # pull out the prior parameters
             central, width = self.densityprior
 
-            # make sure multiple transit models agree on the calculated density
-            #if len(self.tms) > 1:
-            #    assert(self.tms[0].planet.stellar_density == self.tms[1].planet.stellar_density)
 
             # calculate the density prior
             prior = -0.5*((self.tms[0].planet.stellar_density - central)/width)**2
@@ -421,9 +442,12 @@ class Synthesizer(Talker):
             self.budget[key] = prior
 
             lnp +=  prior
+        except (AttributeError,AssertionError):
+            pass
 
         # incorporate a prior on the period, if need be
-        if (self.periodprior is not None):
+        try:
+            assert(self.periodprior is not None)
             # pull out the prior parameters
             central, width = self.periodprior
 
@@ -436,10 +460,12 @@ class Synthesizer(Talker):
 
             # append it
             lnp += prior
-
+        except (AttributeError,AssertionError):
+            pass
 
         # incorporate a prior on t0, if need be
-        if (self.t0prior is not None):
+        try:
+            assert(self.t0prior is not None)
             # pull out the prior parameters
             central, width = self.t0prior
 
@@ -452,8 +478,11 @@ class Synthesizer(Talker):
 
             # append it
             lnp += prior
+        except (AttributeError,AssertionError):
+            pass
 
-        if (self.eprior is not None):
+        try:
+            assert(self.eprior is not None)
             if (self.tms[0].planet.ecosw.fixed == False) or (self.tms[0].planet.esinw.fixed == False):
                 # pull out the prior parameters
                 a, b = self.eprior
@@ -465,6 +494,8 @@ class Synthesizer(Talker):
 
                 prior = np.log(value**(a-1)*(1-value)**(b-1)/scipy.special.beta(a,b))
                 lnp += prior
+        except (AttributeError,AssertionError):
+            pass
 
         assert(np.isfinite(lnp))
         return lnp
@@ -530,6 +561,7 @@ class Synthesizer(Talker):
                     len(self.rvcs))
 
 class Fit(Synthesizer):
+    '''an object for fitting synthesized datasets (LM & MCMC inherit from it)'''
     def __init__(self,
                     tlcs=[],
                     rvcs=[],
@@ -616,7 +648,6 @@ class Fit(Synthesizer):
 
         self.speak('applied the outlier clipping and rescaling')
 
-
     def setRescaling(self):
         '''after a fit has been performed (and applied!),
             rescale all light curves to have a chisq of 1'''
@@ -639,11 +670,162 @@ class Fit(Synthesizer):
             self.speak('rescaling original errors by {0} for next fit'.format(
                         tlc.rescaling))
 
-            # KLUDGE!
-            if self.likelihoodtype == 'white':
+            # if using the beta-approximation for red noise, calculate it
+            if self.likelihoodtype == 'red_beta':
                 tlc.beta = tlc.bestBeta()
                 self.speak('set the beta to be {0} for next fit'.format(
                     tlc.beta))
+            else:
+                tlc.beta = 1.0
+
+    def trainGP(self, tied=True, plot=False):
+        '''after fit has been run, use residuals to train GP hyperparameters'''
+
+        gplnarange = [-10,10]
+        gplntaurange = [-10,10]
+        # create parameters to describe the GP (time-only)
+        for tlc in self.tlcs:
+            # only add a GP for finite light curves
+            if np.sum(tlc.ok) > 0:
+                # pull out the instrument for this light curve
+                instrument = tlc.TM.instrument
+                # calculate the RMS, and use it as initial guess for "a"
+                try:
+                    instrument.gplna
+                except AttributeError:
+                    instrument.gplna = transit.Parameter(   'gplna', None)
+                rms = np.std(tlc.residuals()[tlc.ok])
+                instrument.gplna.float(0, gplnarange)
+
+                # calculate cadence, and use it as initial guess for "tau"
+                try:
+                    instrument.gplntau
+                except AttributeError:
+                    instrument.gplntau = transit.Parameter( 'gplntau', None)
+                instrument.gplntau.float(0,gplntaurange)
+
+                self.registerParameter(instrument.gplna, tlc)
+                self.registerParameter(instrument.gplntau, tlc)
+
+        if tied:
+            self.tieAcrossEpochs('gplna')
+            self.tieAcrossEpochs('gplntau')
+
+        # temporarily set the GP parameters to be the only ones we care about
+        codes = [p['code'] for p in self.parameters]
+        self.originalparameters = self.parameters
+        self.parameters = []
+        for p in self.originalparameters:
+            if (p['name'] == 'gplna'):
+                self.parameters.append(p)
+            if (p['name'] == 'gplntau'):
+                self.parameters.append(p)
+
+        # play with the likelihood
+        self.likelihoodtype = 'red_gp'
+        pinitial = self.toArray()[0]
+        self.budget = {}
+        self.lnprob(pinitial)
+        print self.budget
+
+        self.gp_inputs = []
+        self.gp_outputs = []
+        def nlnprob(p):
+            lnprob = self.lnprob(p)
+            self.gp_inputs.append(p)
+            self.gp_outputs.append(lnprob)
+            return -lnprob
+
+        d = self.directory+'gp/'
+        zachopy.utils.mkdir(d)
+        storedvalues = d + 'gplnagplntau.txt'
+        try:
+            gplna, gplntau = np.loadtxt(storedvalues)
+            gplna_map, gplna_unc = gplna
+            gplntau_map, gplntau_unc = gplntau
+
+            self.speak('loaded gp parameters from file')
+        except IOError:
+            # use nelder-mead to optimize (often fails)
+            #scipy.optimize.minimize(nlnprob, pinitial, method='nelder-mead')
+            ndim = len(pinitial)
+            nwalkers = 20
+
+            initialwalkers = np.zeros((nwalkers, ndim))
+            initialwalkers[:,0] = np.random.uniform(*gplnarange, size=nwalkers)
+            initialwalkers[:,1] = np.random.uniform(*gplntaurange, size=nwalkers)
+            p0 = initialwalkers
+            sampler = emcee.EnsembleSampler(nwalkers, ndim, self.lnprob)
+            plt.figure('training GP')
+            plt.cla()
+            def plotsampler(sampler, color=None, **kw):
+                self.gp_inputs = sampler.flatchain
+                self.gp_outputs = sampler.flatlnprobability
+
+                array = np.array(self.gp_inputs)
+                plt.figure('training GP')
+
+                if color == None:
+                    color = self.gp_outputs
+                plt.scatter(array[:,0], array[:,1],c=color, edgecolor='none', **kw)
+                plt.xlabel('gplna')
+                plt.ylabel('gplntau')
+                plt.xlim(gplnarange)
+                plt.ylim(gplntaurange)
+                plt.title(self.tlcs[0].telescope)
+                plt.draw()
+
+            print("Running first burn-in...")
+            p0, _, _ = sampler.run_mcmc(p0, 100)
+            plotsampler(sampler, color='gray', alpha=0.3)
+            p = sampler.flatchain[np.argmax(sampler.flatlnprobability)]
+            p0 = [p + 1e-8 * np.random.randn(ndim) for i in xrange(nwalkers)]
+            sampler.reset()
+
+            print("Running second burn-in...")
+            p0, _, _ = sampler.run_mcmc(p0, 100)
+            plotsampler(sampler, color='blue', alpha=0.3)
+            sampler.reset()
+
+            print("Running production...")
+            sampler.run_mcmc(p0, 100)
+            plotsampler(sampler)
+
+
+            plt.savefig(d + 'optimizing.png')
+            samples = {}
+            samples['gplna'] = sampler.chain[:,:,0]
+            samples['gplntau'] = sampler.chain[:,:,1]
+            samples['lnprob'] = sampler.lnprobability[:,:]
+            self.gppdf = PDF.Sampled(samples=samples, summarize=True)
+            self.gppdf.storeforhuman(output=d + 'gpparameters')
+
+            gplna_map, gplntau_map = sampler.flatchain[np.argmax(sampler.flatlnprobability)]
+            gplna_unc = 1.48*zachopy.oned.mad(sampler.flatchain[:,0])
+            gplntau_unc = 1.48*zachopy.oned.mad(sampler.flatchain[:,1])
+
+            gplna = [gplna_map, gplna_unc]
+            gplntau = [gplntau_map, gplntau_unc]
+            np.savetxt(storedvalues, (gplna, gplntau))
+
+
+
+
+        self.hyperparameters = [gplna_map, gplntau_map]
+
+        # apply the hyperparameters
+        self.fromArray([gplna_map, gplntau_map])
+        # then, bring all the parameters back in
+        self.parameters = self.originalparameters
+        # fix the values for the hyperparameters
+        for tm in self.tms:
+            try:
+                tm.instrument.gplna.fixed = True
+                tm.instrument.gplntau.fixed = True
+            except AttributeError:
+                pass
+        self.speak("gplna={0}\ngplntau={1}".format(gplna, gplntau))
+        self.speak('just trained the GP')
 
 
 class LM(Fit):
@@ -696,7 +878,6 @@ class LM(Fit):
 
         # perform the LM fit, to get best fit parameters and covariance matrix
         self.speak('running mpfit minimization')
-        self.deviates_including_priors(p0, plotting=True)
         self.mpfitted = mpfit.mpfit(self.deviates_including_priors, p0,
                                     parinfo=parinfo, quiet=quiet)
 
@@ -773,16 +954,18 @@ class LM(Fit):
 
 class MCMC(Fit):
     '''perform a fit using MCMC exploration. this object can handle
-        likelihoodtype = 'white' | 'gp', any priors, and RV jitter'''
+        likelihoodtype = 'white' | 'red_gp' | 'red_beta', any priors, and RV jitter'''
 
-    def __init__(self, tlcs=[], rvcs=[], **kwargs):
-        Fit.__init__(self, tlcs=tlcs, rvcs=rvcs, **kwargs)
+    def __init__(self, tlcs=[], rvcs=[], likelihoodtype='red_gp', **kwargs):
+        Fit.__init__(self, tlcs=tlcs, rvcs=rvcs,
+                        likelihoodtype=likelihoodtype, **kwargs)
         self.directory = self.directory + 'mcmc/'
         zachopy.utils.mkdir(self.directory)
 
     def fit(self,
         nburnin=1000, ninference=1000, nwalkers=500, nleap=20,
-        broad=True, ldpriors=True, fromcovariance=True, densityprior=None, periodprior=None, t0prior=None, eprior=None,
+        broad=True, ldpriors=True, fromcovariance=True,
+        densityprior=None, periodprior=None, t0prior=None, eprior=None,
         plot=True, interactive=False, remake=False, updates=10, **kwargs):
         '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
 
@@ -805,31 +988,34 @@ class MCMC(Fit):
         if len(self.tlcs) > 0:    # create a LM fit to initialize the outlier rejection and rescaling
 
             # ignore the GP in the LM fit
-            if self.gp:
-                for tm in self.tms:
-                    try:
-                        tm.instrument.gplna.fixed = True
-                        tm.instrument.gplntau.fixed = True
-                    except AttributeError:
-                        pass
+            for tm in self.tms:
+                try:
+                    tm.instrument.gplna.fixed = True
+                    tm.instrument.gplntau.fixed = True
+                except AttributeError:
+                    pass
 
-            # set up the LM fit
-            self.lm = LM(self.tlcs, directory=self.directory, gp=False)
+            # set up the LM fit, using a white assumption
+            self.lm = LM(self.tlcs, directory=self.directory, likelihoodtype='white')
             # set LM fit's (possibly linked) parameters to be same as this one
             self.lm.parameters = self.parameters
             # run (or load) the fit
             self.lm.fit(remake=remake, densityprior=self.densityprior, periodprior=self.periodprior, t0prior=self.t0prior, quiet=False)
 
             # take care of the kludge that left the GP out of the fit
-            if self.gp:
+            '''if self.likelihoodtype=='red_gp':
+                self.lm.trainGP()
+
+                gplna, gplntau = self.lm.hyperparameters
                 for tm in self.tms:
                     try:
-                        tm.instrument.gplna.fixed = False
-                        tm.instrument.gplntau.fixed = False
+                        tm.instrument.gplna.fixed = True
+                        tm.instrument.gplna.value = gplna
+                        tm.instrument.gplntau.fixed = True
+                        tm.instrument.gplntau.value = gplntau
                     except AttributeError:
-                        pass
-            #if interactive:
-            #    assert(('n' in self.input('parameters okay?')) == False)
+                        pass'''
+
 
         # pull the parameter array out of the list of dictionaries
         p0, parinfo = self.toArray()
@@ -928,9 +1114,10 @@ class MCMC(Fit):
                 self.speak('creating a PDF of the parameters')
                 before = time.clock()
                 samples = {}
+                nc= len(self.sampler.flatlnprobability)
                 for i in range(nparameters):
-                    samples[self.names[i]] = self.sampler.chain[:,:,i]
-                samples['lnprob'] = self.sampler.lnprobability[:,:]
+                    samples[self.names[i]] = self.sampler.flatchain[nc/2:,i]
+                samples['lnprob'] = self.sampler.flatlnprobability[nc/2:]
                 self.pdf = PDF.Sampled(samples=samples, summarize=done)
                 after = time.clock()
                 self.speak('it took {0} seconds'.format(after-before))
@@ -965,10 +1152,11 @@ class MCMC(Fit):
                 keys = [n for n in self.pdf.names if 'global' in n]
                 keys.append('lnprob')
                 self.speak('{0}'.format(keys))
-                self.pdf.triangle(keys=keys, title=output,
+                figure = self.pdf.triangle(keys=keys, title=output,
                     plot_contours=True, plot_datapoints=False, plot_density=False,
                     alpha=0.5, show_titles=False)
                 plt.savefig(output + '_parameterpdf.pdf')
+                plt.close(figure)
                 after = time.clock()
                 self.speak('it took {0} seconds'.format(after-before))
 
@@ -1020,7 +1208,8 @@ class MCMC(Fit):
             if ismearth:
                 transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self)
             else:
-                transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self, telescopes=None, epochs=None, xlim=[None, None], binsize=15./60/24, gskw=dict(top=0.9, bottom=0.2))
+                xlim = self.tlcs[0].TM.planet.duration*2
+                transit.IndividualPlots(tlcs=self.tlcs, synthesizer=self, telescopes=None, epochs=None, xlim=[-xlim, xlim], binsize=15./60/24, gskw=dict(top=0.9, bottom=0.2))
             plt.savefig(output + '_everything.pdf')
             after = time.clock()
             self.speak('it took {0} seconds'.format(after-before))

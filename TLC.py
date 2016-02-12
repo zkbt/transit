@@ -220,7 +220,10 @@ class TLC(Talker):
         else:
             x = model.planet.timefrommidtransit(self.bjd)
         colors = self.colors['points']
-        colors[:,3]*=alpha
+        try:
+            colors[:,3]*=alpha
+        except TypeError:
+            pass
         plt.scatter(x[ok], self.corrected()[ok], color=colors[ok], edgecolor='none', s=50, linewidth=0)
         colors[self.bad,3]*0.2
         plt.scatter(x[self.bad], self.corrected()[self.bad], color=colors[self.bad], marker='x', s=50)
@@ -249,30 +252,56 @@ class TLC(Talker):
         ok = self.bad == False
         return np.sum((self.residuals()/self.uncertainty)[ok]**2)
 
-    def gp_compute(self, hyperparameters):
-        a, tau = np.exp(hyperparameters[:2])
+    def create_gp(self, hyperparameters):
 
-        #self.gp = george.GP(a*george.kernels.ExpSquaredKernel(tau))#, solver=george.HODLRSolver)
-        ok = self.bad == False
-        t = self.bjd[ok]
-        if len(t) > 5000:
+        # is it short or long? what solver should we
+        t = self.bjd[self.ok]
+        if len(t) > 1000:
             solver = george.HODLRSolver
         else:
             solver = george.BasicSolver
 
-        self.gp = george.GP(a*george.kernels.Matern32Kernel(tau), solver=solver)
+        # first, figure out the typical uncertainty + cadence
+        self.typical_uncertainty = np.median(self.effective_uncertainty[self.ok])
+        offsets = np.median(self.bjd[1:] - self.bjd[:-1])
+        self.typical_cadence = np.median(offsets)
 
-        yerr = self.uncertainty[ok]*self.rescaling
+        a, tau = self.process_hyperparameters(hyperparameters)
+        self.gp = george.GP(a*george.kernels.ExpSquaredKernel(tau),
+                            solver=solver)
+
+    def process_hyperparameters(self, hyperparameters):
+        # create the GP object
+        da, dtau = np.exp(hyperparameters[:2])
+        a = (da*self.typical_uncertainty)**2
+        tau = dtau*self.typical_cadence
+        return a, tau
+
+    def update_gp(self, hyperparameters):
+        self.gp.kernel.pars = self.process_hyperparameters(hyperparameters)
+
+    def gp_compute(self, hyperparameters):
+        a, tau = np.exp(hyperparameters[:2])
+
+
+        try:
+            self.update_gp(hyperparameters)
+        except AttributeError:
+            self.create_gp(hyperparameters)
+
+        t = self.bjd[self.ok]
+        yerr = self.effective_uncertainty[self.ok]
         before = time.clock()
         self.gp.compute(t, yerr)
         after = time.clock()
 
-        self.speak('used {3} to compute kernel {0} for {1} data points in {2} microseconds'.format(self.gp, len(t), 1e6*(after-before), solver))
+        self.speak('used {3} to compute kernel {0} for {1} data points in {2} microseconds'.format(self.gp, len(t), 1e6*(after-before), self.gp.solver))
+
 
     def gp_lnlikelihood(self):
         '''Return the GP calculated likelihood of *this* light curve, assuming the (not hyper-)parameters have been set elsewhere.'''
 
-        #WHAT ER THE HYPERPAREMETES?
+        #pull out the hyper parameters
         hyperparameters = self.TM.instrument.gplna.value, self.TM.instrument.gplntau.value
         self.gp_compute(hyperparameters)
         ok = self.bad == False
@@ -330,7 +359,7 @@ class TLC(Talker):
         self.externalvariables = {}
         for key, value in kwargs.iteritems():
             if len(value) == len(self.bjd):
-                if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength':#and key!= 'bad':
+                if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength':
                     self.externalvariables[key] = value
                 else:
                     self.speak( "   " +  key+  " was skipped")
@@ -872,6 +901,62 @@ class TLC(Talker):
 
     def __repr__(self):
         return '<TLC|{name}|{telescope}|N={n} good data>'.format(name=self.name, telescope=self.telescope, epoch=self.epoch, n=np.sum(self.bad == False))
+
+    def binto(self, size=5.0/60.0/24.0):
+        '''bit the light curves to a given time'''
+
+        self.binnedto = size
+
+        # find the centers of the first and last bins
+        first = np.round(self.bjd[0]/size)*size
+        last = np.round(self.bjd[-1]/size)*size
+
+
+        grid = np.arange(first, last + size, size)
+
+        tlckeys = ['bad','flux','uncertainty', 'bjd']
+        extvarkeys = self.externalvariables.keys()
+        t, e = {}, {}
+
+        for i, center in enumerate(grid):
+            # find the edges of this bin
+            left, right = center - size/2.0, center + size/2.0
+            # figure out what belongs in the bin
+            belongshere = (self.bjd > left)*(self.bjd <= right)
+
+            # pull out the reasonable ones at this grid point
+            ok = belongshere*self.ok
+
+            if ok.any() == False:
+                continue
+
+            # create empty arrays
+            if i == 0:
+                for k in tlckeys:
+                    t[k] = []
+                for k in extvarkeys:
+                    e[k] = []
+
+            # if any point is good, the bin is good
+            t['bad'].append(self.bad[ok].all())
+            # weight the flux and time by the uncertainty
+            for k in ['flux', 'bjd']:
+                t[k].append(np.average(self.__dict__[k][ok],
+                                        weights=1.0/self.uncertainty[ok]**2))
+            # assume the uncertainties are correct
+            t['uncertainty'].append(np.sqrt(1.0/np.sum(1.0/self.uncertainty[ok]**2)))
+            for k in extvarkeys:
+                e[k].append(np.average(self.externalvariables[k][ok],
+                                        weights=1.0/self.uncertainty[ok]**2))
+
+        for k in t.keys():
+            self.__dict__[k] = np.array(t[k])
+
+        for k in e.keys():
+            self.externalvariables[k] = np.array(e[k])
+
+        self.n = len(self.bjd)
+        self.setupColors(color=self.color)
 
 def demo():
     planet = Planet(J=0.00, rp_over_rs=0.1, rsum_over_a=1.0/20.0, cosi=0.000, q=0.000, period=1.58, t0=2456000.0, esinw=0.0, ecosw=0.0)

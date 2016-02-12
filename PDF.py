@@ -6,7 +6,7 @@ from transit.Parameter import Parameter
 from zachopy.Talker import Talker
 import copy
 import scipy.special
-import triangle
+import corner
 
 
 # which attributes can be saved?
@@ -35,6 +35,10 @@ class PDF(Talker):
 		# if possible, load the PDF from a file
 		if filename is not None:
 			self.load(filename)
+
+	def get(self, name):
+		i = np.array(self.names) == name
+		return self.parameters[i]
 
 	def listParameters(self):
 		s = []
@@ -141,7 +145,7 @@ class PDF(Talker):
 		data = np.vstack(data).transpose()
 
 		# make the plot
-		figure = triangle.corner(data,
+		figure = corner.corner(data,
 								labels=keys,
 								truths=truths,
 								quantiles=quantiles,
@@ -154,7 +158,6 @@ class PDF(Talker):
 			figure.gca().annotate(title, xy=(0.5, 1.0), xycoords="figure fraction",
                       xytext=(0, -5), textcoords="offset points",
                       ha="center", va="top")
-
 		return figure
 
 
@@ -407,6 +410,27 @@ class Sampled(PDF):
 
 		return values
 
+	def storeforhuman(self, output, keys=None):
+		'''save a few versions of the PDF, for humans to enjoy'''
+
+		# save summary
+		self.speak('writing a text summary of the PDF')
+		s = []
+		self.calculateUncertainties()
+		s.extend(self.listParameters())
+		txt = open(output + '_summary.txt', 'w')
+		txt.write(''.join(s))
+		txt.close()
+
+		self.save(output + '_pdf.npy')
+
+		self.speak('creating a plot of the PDF')
+		if keys == None:
+			keys = self.names
+
+		figure = self.triangle(keys=keys, title=output, plot_contours=True, plot_datapoints=False, plot_density=False, alpha=0.5, show_titles=False)
+		plt.savefig(output + '_parameterpdf.pdf')
+		plt.close(figure)
 
 class MVG(PDF):
 	def __init__(self, names=None, parameters=None, covariance=None, **kwargs):
