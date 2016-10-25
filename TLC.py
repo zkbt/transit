@@ -34,7 +34,7 @@ class TLC(Talker):
             self.speak('added {0} elements of {1}'.format(len(kwargs[key]), key))
 
 
-        medflux = np.median(data['flux'])
+        medflux = np.nanmedian(data['flux'])
         kwargs['uncertainty'] /= medflux
         kwargs['flux'] /= medflux
 
@@ -262,9 +262,9 @@ class TLC(Talker):
             solver = george.BasicSolver
 
         # first, figure out the typical uncertainty + cadence
-        self.typical_uncertainty = np.median(self.effective_uncertainty[self.ok])
-        offsets = np.median(self.bjd[1:] - self.bjd[:-1])
-        self.typical_cadence = np.median(offsets)
+        self.typical_uncertainty = np.nanmedian(self.effective_uncertainty[self.ok])
+        offsets = np.nanmedian(self.bjd[1:] - self.bjd[:-1])
+        self.typical_cadence = np.nanmedian(offsets)
 
         a, tau = self.process_hyperparameters(hyperparameters)
         self.gp = george.GP(a*george.kernels.ExpSquaredKernel(tau),
@@ -334,7 +334,8 @@ class TLC(Talker):
         return inflation
 
     def fromArrays(self, bjd, flux, uncertainty=None, **kwargs):
-        '''Populate a TLC from input arrays (used by transmission.py)'''
+        '''Populate a TLC from input arrays (used by transmission.py),
+            requires *relative flux units* (not magnitudes!)'''
 
         # how many data points are in light curve?
         self.n = len(bjd)
@@ -351,8 +352,8 @@ class TLC(Talker):
         else:
             self.uncertainty = np.array(uncertainty)
 
-        self.uncertainty /= np.median(flux)
-        self.flux /= np.median(flux)
+        self.uncertainty /= np.nanmedian(flux)
+        self.flux /= np.nanmedian(flux)
 
 
         # populate the external variables, both as a list and as individual entries
@@ -639,7 +640,7 @@ class TLC(Talker):
 
     def instrumental(self):
         about_instrument = self.flux/self.TM.planet_model()
-        return  about_instrument/np.median(self.TM.instrument_model()) - 1
+        return  about_instrument/np.nanmedian(self.TM.instrument_model()) - 1
 
     def timefrommidtransit(self):
         return self.TM.planet.timefrommidtransit(self.bjd)
@@ -720,7 +721,7 @@ class TLC(Talker):
                     self.ax_timeseries[k].set_ylim(np.min(self.externalvariables[k]), np.max(self.externalvariables[k]))
 
         ok = (self.bad == 0).nonzero()
-        which = np.median(np.round((self.TM.smooth_unphased_tlc.bjd - self.TM.planet.t0.value)/self.TM.planet.period.value))
+        which = np.nanmedian(np.round((self.TM.smooth_unphased_tlc.bjd - self.TM.planet.t0.value)/self.TM.planet.period.value))
         modeltime = self.TM.smooth_unphased_tlc.bjd - self.TM.planet.t0.value - which*self.TM.planet.period.value
         assert(len(modeltime) == len(self.TM.model(self.TM.smooth_unphased_tlc)))
         kw = kw = {'color':self.colors['lines'], 'linewidth':3, 'alpha':1.0}
@@ -728,7 +729,7 @@ class TLC(Talker):
         self.line_raw = self.ax_raw.plot(modeltime, self.TM.model(self.TM.smooth_unphased_tlc), **kw)[0]
         self.line_corrected = self.ax_corrected.plot(modeltime, self.TM.planet_model(self.TM.smooth_unphased_tlc), **kw)[0]
         self.line_residuals = self.ax_residuals.plot(modeltime, ppm*np.zeros_like(modeltime), **kw)[0]
-        justinstrument = (self.TM.instrument_model(self.TM.smooth_unphased_tlc)/np.median(self.TM.instrument_model()) - 1)
+        justinstrument = (self.TM.instrument_model(self.TM.smooth_unphased_tlc)/np.nanmedian(self.TM.instrument_model()) - 1)
         self.line_instrument = self.ax_instrument.plot(modeltime, ppm*justinstrument, **kw)[0]
 
 
@@ -846,7 +847,7 @@ class TLC(Talker):
 
         return d
 
-    def lines(self):
+    def lines(self, fixedephemeris=None):
         # make sure a smooth fake TLC is set up
         try:
             self.smoothed
@@ -856,7 +857,17 @@ class TLC(Talker):
         # a dictionary of ok data points, in various stages of correction
         d = {}
         d['bjd'] = self.smoothed.bjd
-        d['t'] = self.TM.planet.timefrommidtransit(d['bjd'])
+        if fixedephemeris is None:
+            d['t'] = self.TM.planet.timefrommidtransit(d['bjd'])
+        else:
+            period, t0 = fixedephemeris
+            bjd = d['bjd']
+            thismidtransit = np.round((bjd - t0)/period)*period + t0
+            phasedtime = (bjd - thismidtransit)
+            mask = phasedtime > 0.5*period
+            phasedtime[mask] -= period
+            d['t'] = phasedtime
+
         d['residualsfromgp'] = np.zeros_like(d['bjd'])
         d['cleanedfromgp'] = self.TM.planet_model(tlc=self.smoothed)
 
@@ -867,9 +878,12 @@ class TLC(Talker):
 
         return d
 
-    def splitIntoEpochs(self, planet=None, buffer=5, thresholdInTransit=1, thresholdOutOfTransit=1, newdirectory=None):
+    def splitIntoEpochs(self, planet=None, buffer=5, thresholdInTransit=1, thresholdOutOfTransit=1, newdirectory=None, phaseofinterest=0.0):
         assert(planet is not None)
 
+
+        # BE CAREFUL THIS GETS UNDONE AT THE END!
+        planet.t0.value += planet.period.value*phaseofinterest
         inTransit = np.abs(planet.timefrommidtransit(self.bjd)) < planet.duration/2.0
         epochNumbers = planet.thisepoch(self.bjd)
         uniqueEpochNumbers = np.unique(epochNumbers)
@@ -897,6 +911,9 @@ class TLC(Talker):
                 newTLCs.append(newTLC)
             else:
                 self.speak("there aren't enough data on epoch {0} to be worth while".format(u))
+
+        # HERE's WHERE IT GETS UNDONE!
+        planet.t0.value -= planet.period.value*phaseofinterest
         return newTLCs
 
     def __repr__(self):

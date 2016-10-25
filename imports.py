@@ -8,6 +8,7 @@ import scipy.interpolate, scipy.optimize
 import george
 import pemcee as emcee
 import zachopy.borrowed.mpfit.mpfit as mpfit
-import zachopy.oned
+import zachopy.oned, zachopy.utils
+import copy
 import time, datetime
 ppm = 1e6

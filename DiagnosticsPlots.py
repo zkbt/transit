@@ -50,6 +50,7 @@ class DiagnosticsPlots(Plot):
             elif correlations == 'all':
                 for k in self.tlc.externalvariables.keys():
                   if (k == 'ok') or (k == 'bad'):
+                      # # a = raw_input('line 53')
                       continue
                   if np.std(self.tlc.externalvariables[k]) > 0:
                       self.to_correlate.append(k.split('_tothe')[0])
@@ -93,8 +94,9 @@ class DiagnosticsPlots(Plot):
         self.ax_residuals.set_xlabel('Time from Syzygy (days)')
 
         # set up the y limits (is this necessary?)
-        self.ax_raw.set_ylim(np.min(self.tlc.flux), np.max(self.tlc.flux))
-        self.ax_corrected.set_ylim(np.min(self.tlc.flux), np.max(self.tlc.flux))
+        #self.ax_raw.set_ylim(np.min(self.tlc.flux), np.max(self.tlc.flux))
+        #self.ax_corrected.set_ylim(np.min(self.tlc.flux), np.max(self.tlc.flux))
+
 
 
         if everything:
@@ -131,7 +133,7 @@ class DiagnosticsPlots(Plot):
                 if i == len(self.to_correlate) - 1:
                     self.ax_correlations[k].set_xlabel('transit\nresiduals')
 
-    def plot(self, noiseassumedforplotting=0.001, directory=None, binsize=6.0/60.0/24.0, mintimespan=None, **kwargs):
+    def plot(self, noiseassumedforplotting=0.001, directory=None, ylim=[0.981, 1.007], binsize=6.0/60.0/24.0, mintimespan=None, phaseofinterest=0.0, **kwargs):
         '''A quick tool to plot what the light curve (and external variables) looks like.'''
         ppm = 1e6
 
@@ -142,25 +144,39 @@ class DiagnosticsPlots(Plot):
 
         goodkw = {'color':self.tlc.colors['points'], 'alpha':0.5, 'marker':'o', 'edgecolor':'none', 's':10}
         badkw = {'color':self.tlc.colors['points'], 'alpha':0.25, 'marker':'x', 'edgecolor':'none', 's':10}
+
+
         time = self.tlc.TM.planet.timefrommidtransit(self.tlc.bjd)
+        if phaseofinterest == 0.5:
+            time[time < 0] += self.tlc.TM.planet.period.value
+            #KLUDGE?
 
         notok = self.tlc.bad
+        # # a = raw_input('early in the plotting for {0}?'.format(self.tlc))
+
         for good in [False,True]:
+
             if good:
-                ok = (self.tlc.bad == 0).nonzero()
+                ok = (self.tlc.bad == 0)#.nonzero()
                 kw = goodkw
                 if np.sum(ok) == 0:
-                    return
+                    pass#return
             else:
-                ok = (self.tlc.bad).nonzero()
+                ok = (self.tlc.bad)#.nonzero()
                 kw = badkw
             if np.sum(ok) == 0:
+                # # a = raw_input('line 167')
                 continue
+
+            # # a = raw_input('good is {0}?'.format(good))
+
             self.ax_raw.scatter(time[ok], self.tlc.flux[ok], **kw)
             self.ax_corrected.scatter(time[ok], self.tlc.flux[ok]/self.tlc.TM.instrument_model()[ok], **kw)
             self.ax_residuals.scatter(time[ok], ppm*self.tlc.residuals()[ok], **kw)
             self.ax_instrument.scatter(time[ok], ppm*self.tlc.instrumental()[ok], **kw)
-            if good:
+            # # a = raw_input('some scatters')
+
+            if False:
                 zorder = 10
                 bkw = dict(zorder=10, markersize=0, elinewidth=3, linewidth=0, capthick=0, alpha=1 )
                 plt.sca(self.ax_raw)
@@ -179,6 +195,8 @@ class DiagnosticsPlots(Plot):
                 plt.sca(self.ax_instrument)
                 plotbinned(time[ok], ppm*self.tlc.instrumental()[ok],
                             uncertainty=ppm*self.tlc.uncertainty[ok], bin=binsize, **bkw)
+                # # a = raw_input('lots of binned')
+            plt.draw()
 
             self.tlc.points_correlations = {}
             kw['s'] = 10
@@ -203,6 +221,7 @@ class DiagnosticsPlots(Plot):
                     self.ax_correlations[k].set_xlim(ppm*np.min(self.tlc.instrumental()[ok]), ppm*np.max(self.tlc.instrumental()[ok]))
                     self.ax_timeseries[k].set_ylim(np.min(self.tlc.externalvariables[k][ok]), np.max(self.tlc.externalvariables[k][ok]))
 
+        # a = raw_input('done with loop')
         ok = (self.tlc.bad == 0).nonzero()
         which = np.median(np.round((self.tlc.TM.smooth_unphased_tlc.bjd - self.tlc.TM.planet.t0.value)/self.tlc.TM.planet.period.value))
         modeltime = self.tlc.TM.smooth_unphased_tlc.bjd - self.tlc.TM.planet.t0.value - which*self.tlc.TM.planet.period.value
@@ -262,8 +281,14 @@ class DiagnosticsPlots(Plot):
             self.ax_residuals.set_xlim(np.mean(time)-mintimespan/2.0, np.mean(time)+mintimespan/2.0)
 
         buffer = 0.0075
-        self.ax_corrected.set_ylim(1.0 - self.tlc.TM.planet.depth - buffer, 1.0 + buffer)
-        self.ax_raw.set_ylim(1.0 - self.tlc.TM.planet.depth - buffer*3, 1.0 + buffer*3)
+
+        if phaseofinterest == 0.5:
+            self.ax_corrected.set_ylim(*ylim)
+            self.ax_corrected.get_yaxis().get_major_formatter().set_useOffset(False)
+            self.ax_raw.set_ylim(*np.percentile(self.tlc.flux[self.tlc.ok], [1,99]))
+        else:
+            self.ax_corrected.set_ylim(1.0 - self.tlc.TM.planet.depth - buffer, 1.0 + buffer)
+            self.ax_raw.set_ylim(1.0 - self.tlc.TM.planet.depth - buffer*3, 1.0 + buffer*3)
 
         plt.draw()
         if directory is None:
@@ -271,4 +296,6 @@ class DiagnosticsPlots(Plot):
 
         #filename = directory + self.tlc.name.translate(None, '!@#$%^&*()<>') + '_lightcurveDiagnostics.pdf'
         #self.speak('saving light curve diagnostic plot to {0}'.format(filename))
-        #plt.savefig(filename)
+        filename = self.tlc.directory + 'diagnostics.png'
+        plt.savefig(filename, dpi=100)
+        # a = raw_input('okay with the plot for {0}?'.format(self.tlc))

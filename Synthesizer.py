@@ -318,7 +318,7 @@ class Synthesizer(Talker):
             central, width = self.densityprior
             value = self.tms[0].planet.stellar_density
             prior = (value - central)/width
-            effective_deviates.append(density_prior)
+            effective_deviates.append(prior)
 
         # if specified, add period prior
         if (self.periodprior is not None):
@@ -508,7 +508,7 @@ class Synthesizer(Talker):
         for rvc in self.rvcs:
             # weight only the good points
             ok = (rvc.bad == 0).nonzero()
-            thisjitter += np.sum(np.log(1.0/rvc.effective_uncertainty[ok]))
+            thisjitter = np.sum(np.log(1.0/rvc.effective_uncertainty[ok]))
             key = 'non-chisq jitter term from {0}'.format(rvc.name)
             self.budget[key] = thisjitter
             jitterconstraint += thisjitter
@@ -963,7 +963,7 @@ class MCMC(Fit):
         zachopy.utils.mkdir(self.directory)
 
     def fit(self,
-        nburnin=1000, ninference=1000, nwalkers=500, nleap=20,
+        nburnin=500, ninference=1000, nwalkers=500, nleap=20, npreburnin=100,
         broad=True, ldpriors=True, fromcovariance=True,
         densityprior=None, periodprior=None, t0prior=None, eprior=None,
         plot=True, interactive=False, remake=False, updates=10, **kwargs):
@@ -1056,11 +1056,31 @@ class MCMC(Fit):
         count = 0
         pos = initialwalkers
         index = 0
+
+        # KLUDGE! to clean out the bad walker gunk
+        self.speak("running {} preburn-in steps, with {} walkers".format(npreburnin, nwalkers))
+        before = time.clock()
+        pos, prob, state = self.sampler.run_mcmc(pos, npreburnin)
+        after = time.clock()
+        self.speak('it took {0} seconds'.format(after-before))
+        self.speak()
+        lastlnprob = self.sampler.lnprobability[:,-1]
+        self.speak("the worst last walker was at lnprob = {}".format(np.min(lastlnprob)))
+        limit = np.percentile(lastlnprob, 50)
+        self.speak("reseting the walker positions to those above the last walkers' median ({})".format(limit))
+        goodenough = self.sampler.flatlnprobability > limit
+        options = self.sampler.flatchain[goodenough]
+        pos = options[np.random.randint(0, len(options), nwalkers), :]
+
+
         # run the burn-in of the chain, creating plots along the way
         while (done and saved) == False:
 
             self.speak("{0}".format(datetime.datetime.now()))
             # run the chain for one "leap"
+
+
+
             if done == False:
                 self.speak("running {0}-{1} of {2} burn-in steps, with {3} walkers".format(count, count+nleap, nburnin, nwalkers))
                 #pos, prob, state = self.sampler.run_mcmc_with_progress(pos, nleap, updates=updates)
@@ -1091,13 +1111,13 @@ class MCMC(Fit):
                 save = True
 
                 nwalkers, nsteps, ndim = self.sampler.chain.shape
-                '''if burnt:
+
+                if burnt:
                     which = nburnin + np.arange(nsteps - nburnin)
                     if done:
                         which = np.arange(ninference) + nburnin
                 else:
                     which = nsteps/2 + np.arange(nsteps/2)
-                '''
 
                 # plot the trace of the parameters
                 self.speak('creating plot of the parameter traces')
@@ -1219,7 +1239,9 @@ class MCMC(Fit):
 
             self.speak('creating a plot of the RVs that have been fitted')
             before = time.clock()
-            ylim=[-15, 15]
+            #ylim=[-15, 15]
+            height = self.rvcs[0].TM.planet.semiamplitude.value*4*1e3
+            ylim = [-height, height]
             kw = dict(ylim=ylim)
             p = transit.RVPhasedPlot(rvcs=self.rvcs, **kw)
             plt.savefig(output + '_rv.pdf')

@@ -13,3 +13,4 @@ class MultiplexPlot(Talker):
         self.gs_overall = plt.matplotlib.gridspec.GridSpec(1,len(tlcs))
         for i, tlc in enumerate(tlcs):
             self.plotter(tlc=tlc, gs_destination=self.gs_overall[i], notfirst=i > 0, **kwargs)
+            self.speak('after multiplex plot for {}'.format(tlc))

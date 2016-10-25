@@ -1,11 +1,5 @@
 from Plots import *
 
-def modify(s):
-    if 'MEarth' in s:
-        return s.replace('1', ' #')
-    else:
-        return s
-
 class IndividualPlots(Plot):
 
     @property
@@ -16,7 +10,7 @@ class IndividualPlots(Plot):
     def identifier(self, tlc):
         return str(tlc)
 
-    def setup(self, tlcs=None, stretch=2.0, epochs=[-19, -11,  0, 11], telescopes=['MEarth13','MEarth12','MEarth14', 'MEarth18', 'TRAPPIST', 'PISCOg', 'PISCOi'], gskw=dict(bottom=0.05, left=0.1, right=0.95, top=0.95), dpi=30, **kwargs):
+    def setup(self, tlcs=None, stretch=2.0, epochs=None, telescopes=None, gskw=dict(bottom=0.05, left=0.1, right=0.95, top=0.95), dpi=30, **kwargs):
         # set up the axes for the plot
         self.tlcs = tlcs
         if telescopes is None:
@@ -72,7 +66,7 @@ class IndividualPlots(Plot):
                 self.maxcol[tlc.telescope] = col
 
 
-    def plot(self, tlcs, synthesizer=None, xlim=(-1.5/24, 1.5/24), ylim=(0.985, 1.015), binsize=5.0/24.0/60.0, title='',  epochs=None, telescopes=None, gskw=None, **kwargs):
+    def plot(self, tlcs, synthesizer=None, xlim=(-2.5/24, 2.5/24), ylim=(0.985, 1.015), binsize=10.0/24.0/60.0, title='',  epochs=None, telescopes=None, gskw=None, **kwargs):
         self.synthesizer=synthesizer
         done = {}
         self.synthesizer.fromPDF(option='best')
@@ -80,6 +74,8 @@ class IndividualPlots(Plot):
         # first plot the central value of the fit and the GP
         for tlc in self.tlcs:
             # select this particular light curve
+            if np.sum(tlc.ok) == 0:
+                continue
             key = self.identifier(tlc)
             ident = key
             row = (self.telescopes == tlc.telescope).nonzero()[0]
@@ -103,27 +99,28 @@ class IndividualPlots(Plot):
             else:
                 points = tlc.points()
 
-            if 'PISCOg' in tlc.telescope:
-                nudge = -0.005
-            else:
-                nudge = 0.0
 
-            plt.plot(points['t'], points['raw']+nudge, color='gray', marker='o', markersize=3, markeredgecolor='none', linewidth=0, alpha=0.5)
+            nudge = tlc.TM.instrument.C.value
+            tlc.temporarynudge = nudge
+            plt.plot(points['t'], points['raw']/nudge, color='gray', marker='o', markersize=3, markeredgecolor='none', linewidth=0, alpha=0.5)
 
-            bx, by, be = zachopy.oned.binto(points['t'], points['raw'], binsize,
+            bx, by, be = zachopy.oned.binto(points['t'], points['raw'], binwidth=binsize,
                 yuncertainty=tlc.effective_uncertainty[tlc.ok], robust=False, sem=True)
-            plt.errorbar(bx, by+nudge, be, color='black', alpha=0.75, elinewidth=3, markersize=6, linewidth=0, capthick=0, zorder=40, **kwargs)
+            plt.errorbar(bx, by/nudge, be, color='black', alpha=0.75, elinewidth=3, markersize=6, linewidth=0, capthick=0, zorder=40, **kwargs)
+
 
 
             #plotbinned(points['t'], points['raw'], color=tlc.color, marker='o', markersize=10, alpha=1)
 
 
             if self.synthesizer.likelihoodtype == 'red_gp':
-                lines = tlc.gp_lines(mean=True)
+                lines = tlc.gp_lines( mean=True)
             else:
                 lines = tlc.lines()
             bestdeterministic[key] = lines['raw'] - lines['raw']
-            plt.plot(lines['t'], lines['raw']+nudge, linewidth=1, alpha=1, color='#1f78b4', zorder=20)
+
+            nudge = tlc.temporarynudge
+            plt.plot(lines['t'], lines['raw']/nudge, linewidth=1, alpha=1, color='#1f78b4', zorder=20)
 
             #print 'best!'
             hyperparameters = tlc.TM.instrument.gplna.value, tlc.TM.instrument.gplntau.value
@@ -133,7 +130,7 @@ class IndividualPlots(Plot):
             #print row, col, self.maxrow[tlc.epoch], self.mincol[tlc.telescope], self.maxcol[tlc.telescope]
             if tlc.telescope == self.telescopes[0]:
                 a = self.axes[key].twiny()
-                a.plot(None)
+                a.plot([])
                 a.xaxis.set_label_position("top")
                 a.set_xlabel('E={0}'.format(tlc.epoch))
                 plt.setp(a.get_xticklabels(), visible=False)
@@ -143,7 +140,7 @@ class IndividualPlots(Plot):
             if row == self.maxrow[tlc.epoch]:
                 self.axes[key].xaxis.set_label_position("bottom")
                 self.axes[ident].set_xlabel('Time from Mid-Transit (days)')
-                plt.xticks([-0.05, 0, 0.05])
+                #plt.xticks([-0.05, 0, 0.05])
 
                 #print 'adding xlabel'
             else:
@@ -163,12 +160,14 @@ class IndividualPlots(Plot):
             if col == self.maxcol[tlc.telescope]:
                 a = self.axes[key].twinx()
                 a.yaxis.set_label_position("right")
-                a.plot(None)
+                a.plot([])
                 plt.setp(a.get_yticklabels(), visible=False)
 
-                a.set_ylabel(modify(tlc.telescope), rotation=270, labelpad=15)
+                a.set_ylabel(tlc.telescope, rotation=270, labelpad=15)
                 #print 'adding ytitle'
 
+        period = self.synthesizer.tms[0].planet.period.value
+        t0 = self.synthesizer.tms[0].planet.t0.value
         for i in range(5):
             # point at a random sample in the PDF
             self.synthesizer.fromPDF(option='random')#, verbose=True)
@@ -186,19 +185,17 @@ class IndividualPlots(Plot):
                     continue
 
                 if self.synthesizer.likelihoodtype == 'red_gp':
-                    extralines = tlc.gp_lines(mean=False)
-                    #extralines = tlc.gp_lines(mean=True)
+                    extralines = tlc.gp_lines(fixedephemeris=[period, t0], mean=False)
+                    #extralines = tlc.gp_lines(fixedephemeris=[period, t0], mean=True)
                 else:
-                    extralines = tlc.lines()
+                    extralines = tlc.lines(fixedephemeris=[period, t0])
                     #assert(False)
                 #self.speak('{0}'.format(tlc))
 
-                if 'PISCOg' in tlc.telescope:
-                    nudge = -0.005
-                else:
-                    nudge = 0.0
-
-                self.axes[key].plot(extralines['t'], extralines['raw'] - bestdeterministic[key]+nudge, linewidth=1, alpha=0.75, color='#b2df8a', zorder=10)
+                # (with the diving nudge, this might not be okay?)
+                #nudge = tlc.TM.instrument.C.value
+                nudge = tlc.temporarynudge
+                self.axes[key].plot(extralines['t'], (extralines['raw'] - bestdeterministic[key])/nudge, linewidth=1, alpha=0.75, color='#b2df8a', zorder=10)
                 hyperparameters = tlc.TM.instrument.gplna.value, tlc.TM.instrument.gplntau.value
                 #print j, i, which, walker
                 #print hyperparameters
