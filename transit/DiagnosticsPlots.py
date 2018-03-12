@@ -1,4 +1,4 @@
-from Plots import *
+from .Plots import *
 
 class DiagnosticsPlots(Plot):
 
@@ -91,7 +91,7 @@ class DiagnosticsPlots(Plot):
             self.ax_instrument.set_ylabel('transit\nresiduals\n(ppm)')
             self.ax_corrected.set_ylabel('Corrected Photometry')
             self.ax_residuals.set_ylabel('final\nresiduals\n(ppm)')
-        self.ax_residuals.set_xlabel('Time from Syzygy (days)')
+        self.ax_residuals.set_xlabel('Time from .Syzygy (days)')
 
         # set up the y limits (is this necessary?)
         #self.ax_raw.set_ylim(np.min(self.tlc.flux), np.max(self.tlc.flux))

@@ -1,4 +1,4 @@
-from imports import *
+from .imports import *
 class Data(Talker):
 	def __init__(self, **kwargs):
 		Talker.__init__(self, **kwargs)

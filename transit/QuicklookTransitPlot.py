@@ -1,7 +1,7 @@
-from Plots import *
+from .Plots import *
 
 class QuicklookTransitPlot(Plot):
-    '''Plot one TLC, with its currently set model (potentially sampling from a GP).'''
+    '''Plot one TLC, with its currently set model (potentially sampling from .a GP).'''
 
     def __init__(self, **kwargs):
         Plot.__init__(self, **kwargs)
@@ -38,7 +38,7 @@ class QuicklookTransitPlot(Plot):
         self.ax['cleanedfromgp'].set_ylabel('Without\nGP')
         self.ax['residuals'].set_ylabel('O-C')
         self.ax['residualsfromgp'].set_ylabel('O-C-GP')
-        self.ax['residualsfromgp'].set_xlabel('Time from Mid-transit (days)')
+        self.ax['residualsfromgp'].set_xlabel('Time from .Mid-transit (days)')
 
         t = tlc.TM.planet.timefrommidtransit(tlc.bjd)
 

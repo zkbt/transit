@@ -1,7 +1,7 @@
 import emcee
 import matplotlib.pyplot as plt, numpy as np
 import datetime
-from zachopy.Talker import Talker
+from craftroom.Talker import Talker
 
 class EnsembleSampler(emcee.EnsembleSampler, Talker):
     """Exactly the same as Dan F-M's ensemble sampler, but with some built-in plots."""

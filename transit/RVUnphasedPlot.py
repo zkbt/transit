@@ -1,4 +1,4 @@
-from Plots import *
+from .Plots import *
 
 
 

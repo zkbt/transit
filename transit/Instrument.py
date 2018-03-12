@@ -1,4 +1,4 @@
-from Parameters import Parameters
+from .Parameters import Parameters
 import numpy as np
 
 class Instrument(Parameters):

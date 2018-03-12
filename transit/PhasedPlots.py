@@ -1,4 +1,4 @@
-from Plots import *
+from .Plots import *
 
 def glom(s):
     if 'MEarth' in s:
@@ -106,7 +106,7 @@ class PhasedPlots(Plot):
         plotbinned(tm.planet.timefrommidtransit(bjd[bigok]), flux[bigok], uncertainty=uncertainty[bigok], alpha=0.75, bin=binsize)
         self.axes['all'].set_xlim(*xlim)
         self.axes['all'].set_ylim(*ylim)
-        self.axes['all'].set_xlabel('Time from Mid-Transit (days)')
+        self.axes['all'].set_xlabel('Time from .Mid-Transit (days)')
         self.axes['all'].set_ylabel('Relative Flux')
         self.axes['all'].set_title(title)
         table = astropy.table.Table(dict(bjd=bjd,

@@ -1,8 +1,8 @@
-from zachopy.Talker import Talker
+from craftroom.Talker import Talker
 import matplotlib.pyplot as plt, numpy as np
 import zachopy.borrowed.mpfit.mpfit as mpfit
 import zachopy.oned
-import pemcee as emcee
+import .pemcee as emcee
 import transit.PDF as PDF
 ##@profile
 
@@ -40,7 +40,7 @@ class Fit(Talker):
 
     def load(self):
         """Save this fit, so it be reloaded quickly next time."""
-        self.speak('attempting to load from {0}'.format(self.directory))
+        self.speak('attempting to load from .{0}'.format(self.directory))
         #self.speak('  the PDF')
         self.pdf = PDF.load(self.directory + 'pdf.npy')
         #self.speak('  the fitting notes')
@@ -139,7 +139,7 @@ class MCMC(Fit):
     def fit(self, nburnin=500, ninference=500, nwalkers=100,
         broad=True, ldpriors=True,
         plot=True, interactive=False, remake=False, **kwargs):
-        '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
+        '''Use MCMC (with the emcee) to sample from .the parameter probability distribution.'''
 
         self.speak('running an MCMC fit')
         try:
@@ -170,7 +170,7 @@ class MCMC(Fit):
             for i in range(nparameters):
                 parameter = self.model.parameters[i]
                 initialwalkers[:,i] = np.random.uniform(parameter.limits[0], parameter.limits[1], nwalkers)
-                self.speak('  {parameter.name} picked from uniform distribution spanning {parameter.limits}'.format(**locals()))
+                self.speak('  {parameter.name} picked from .uniform distribution spanning {parameter.limits}'.format(**locals()))
 
             # set up the emcee sampler
             self.sampler = emcee.EnsembleSampler(nwalkers, nparameters, self.model.lnprob)
@@ -209,7 +209,7 @@ class MCMC(Fit):
             # loop until satisfied with the inference samples
             self.speak('running for inference, using {0} steps and {1} walkers'.format(ninference, nwalkers))
 
-            # start with the last set of walker positions from the burn in and run for realsies
+            # start with the last set of walker positions from .the burn in and run for realsies
             self.sampler.run_mcmc_with_progress(pos, ninference)
 
             # trim the chain to the okay values (should this be necessary?)

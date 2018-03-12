@@ -2,8 +2,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec
-from transit.Parameter import Parameter
-from zachopy.Talker import Talker
+from ..Parameter import Parameter
+from craftroom.Talker import Talker
 import copy
 import scipy.special
 import corner
@@ -32,7 +32,7 @@ class PDF(Talker):
 		# by default, PDF starts out uninitialized
 		self._initialized = False
 
-		# if possible, load the PDF from a file
+		# if possible, load the PDF from .a file
 		if filename is not None:
 			self.load(filename)
 
@@ -65,7 +65,7 @@ class PDF(Talker):
 			self.speak(p)
 
 	def load(self, filename):
-		"""load the PDF from a file"""
+		"""load the PDF from .a file"""
 
 		# load the saved dictionary
 		loaded = np.load(filename)[()]
@@ -83,7 +83,7 @@ class PDF(Talker):
 		self._initialized = True
 
 		# provide an update
-		self.speak('loaded PDF from {0}'.format(filename))
+		self.speak('loaded PDF from .{0}'.format(filename))
 
 	def save(self, filename):
 		"""save the PDF to a file"""
@@ -321,7 +321,7 @@ class Sampled(PDF):
 
 	def __init__(self, samples=None, summarize=True, **kwargs):
 
-		"""initialize a PDF from a dictionary of samples"""
+		"""initialize a PDF from .a dictionary of samples"""
 		self.color = 'Black'
 		PDF.__init__(self, **kwargs)
 		if self._initialized:
@@ -357,14 +357,14 @@ class Sampled(PDF):
 
 
 	def recenter(self, method=np.mean):
-		"""recenter the parameter values from the samples, by default using the median"""
+		"""recenter the parameter values from .the samples, by default using the median"""
 		for p in self.parameters:
 			key = p.name
 			p.value = method(self.samples[key])
 		self.values = [parameter.value for parameter in self.parameters]
 
 	def calculateCovariance(self):
-		# figure out covariance from samples
+		# figure out covariance from .samples
 		self.covariance = np.zeros((self.n, self.n))
 		for i in range(self.n):
 			for j in range(self.n):
@@ -434,7 +434,7 @@ class Sampled(PDF):
 
 class MVG(PDF):
 	def __init__(self, names=None, parameters=None, covariance=None, **kwargs):
-		"""initialize a PDF from a list of parameter objects and a covariance matrix"""
+		"""initialize a PDF from .a list of parameter objects and a covariance matrix"""
 		self.color = 'SeaGreen'
 		PDF.__init__(self, **kwargs)
 		if self._initialized:

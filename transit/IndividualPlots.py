@@ -1,4 +1,4 @@
-from Plots import *
+from .Plots import *
 
 class IndividualPlots(Plot):
 
@@ -139,7 +139,7 @@ class IndividualPlots(Plot):
 
             if row == self.maxrow[tlc.epoch]:
                 self.axes[key].xaxis.set_label_position("bottom")
-                self.axes[ident].set_xlabel('Time from Mid-Transit (days)')
+                self.axes[ident].set_xlabel('Time from .Mid-Transit (days)')
                 #plt.xticks([-0.05, 0, 0.05])
 
                 #print 'adding xlabel'

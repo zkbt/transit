@@ -4,11 +4,12 @@ if True:#__name__ == '__main__':
 	p = Planet.Planet()
 	s = Star.Star()
 	i = Instrument.Instrument()
-	tm = TM.TM(planet=p, star=s, instrument=i)
 
 	bjd = np.linspace(p.t0.value - p.duration*1, p.t0.value + p.duration*1, 300)
 	fluxerr = 0.001*np.ones_like(bjd)
-	tlc = TLC.TLC(bjd, np.ones_like(bjd), fluxerr)
+	tlc = TLC.TLC(bjd, np.ones_like(bjd), fluxerr, directory='example/', telescope='Galileo', epoch=0)
+	tm = TM.TM(planet=p, star=s, instrument=i, directory='example/')
+
 	tlc.linkModel(tm)
 	m = tm.planet_model(t=bjd)
 	tlc.flux = m+np.random.normal(0, 1, len(bjd))*fluxerr

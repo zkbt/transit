@@ -1,4 +1,4 @@
-from IndividualPlots import *
+from .IndividualPlots import *
 
 class GroupedPlots(IndividualPlots):
     def identifier(self, tlc):

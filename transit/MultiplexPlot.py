@@ -1,4 +1,4 @@
-from Plots import *
+from .Plots import *
 
 class MultiplexPlot(Talker):
     def __init__(self, tlcs, plotter, figsize=None, dpi=None, **kwargs):

@@ -1,18 +1,156 @@
-from imports import *
-from Planet import Planet
-from Star import Star
-from TM import TM
-from PDF import PDF
+from .imports import *
+from .Planet import Planet
+from .Star import Star
+from .TM import TM
+from .PDF import PDF
 
 ppm = 1e6
 
+class fakeTLC(TLC):
+    def __init__(self, **kw):
+        TLC.__init__(self, **kw)
+        self.isfake = True
+
+
 class TLC(Talker):
-    '''Transit Light Curve class,
-        to store both light curve and auxiliary variables.'''
+    '''Transit Light Curve objects store both light curve data and auxiliary variables.'''
+
+    def __init__(self,  bjd=None,               # an array of BJD times
+                        flux=None,              # an array of flux values
+                        uncertainty=None,       # an array of flux uncertainties
+                        cotrending={},          # a dictionary of arrays of cotrending variables
+
+                        directory=None,         # the directory to associate with this light curve
+                        basedirectory=None,     # if the directory isn't defined, make one inside a basedirectory
+                        inputfilename=None,     # the filename of a text file to load (arrays and .npy loading fail)
+
+                        telescope=None,         # what telescope took these data (None for fake data)
+                        epoch=None,             # what is the epoch of this transit (None for multitransit curves)
+                        left=None, right=None,  # what's the wavelength range of this TLC?
+                        name=None,              # give this a custom name (otherwise, will be created from .T + E)
+
+                        color='slategray'       # give this light curve a color, for plotting
+                        **kwargs):
+
+        # initialize the Talker object
+        Talker.__init__(self)
+        self.color = color
+
+        # initialize a white and red rescaling
+        self.rescaling = 1.0
+        self.beta = 1.0
+
+        # define a dictionary of flags that can be used for bad data
+        self.flags = dict(outlier=1, saturation=2, custom=4)
+
+        # specify the left and right wavelengths of this bandpass
+        self.left = left
+        self.right = right
+
+        # keep track of the telescope (and epoch)
+        self.telescope=telescope
+        self.epoch=epoch
+
+        # assign a name to this lightcurve
+        if name is None:
+            if self.telescope is None:
+                name = '???'
+            else:
+                name = self.telescope
+            if self.epoch is None:
+                pass
+            else:
+                name += ',E={0}'.format(self.epoch)
+        self.name = name
+
+        # see if it's necessary to define a directory for this light curve
+        self.directory = directory
+        if self.directory is None:
+            # if there's a base directory, define a new directory for this light curve
+            if basedirectory is not None:
+                zachopy.utils.mkdir(basedirectory)
+                self.directory = os.path.join(basedirectory, 'T={telescope}_E={epoch}/'.format(**self.__dict__))
+        if self.directory is not None:
+            zachopy.utils.mkdir(self.directory)
+
+        # initialize the TLC by filling it with data
+        self.initialize(bjd=bjd, flux=flux, uncertainty=uncertainty,
+                        telescope=telescope, epoch=epoch, **cotrending)
+
+        # pick the central wavelength of this light curve's bandpass
+        if self.left is None or self.right is None:
+            self.wavelength = None
+        else:
+            self.wavelength = (self.left + self.right)/2.0
+
+
+        # assign the colors for this light curve
+        self.setupColors(color=color)
+
+
+    def initialize(self, bjd=None, flux=None, uncertainty=None, cotrending={},
+                         remake=False, telescope=None, epoch=None,
+                         **kwargs): # kwargs get passed oin
+        '''If possible, try to load the light curve from .its directory
+            otherwise, create it from .raw input file.'''
+
+        # do we need to save this, at the end?
+        isnew = True
+
+        # first, are bjd + flux + uncertainty defined?
+        if bjd is not None and flux is not None:
+            self.fromArrays(bjd, flux, uncertainty, **cotrending)
+            self.telescope = telescope
+            self.epoch = epoch
+            self.speak('initialized {} directly from .arrays'.format(self, self.n))
+        else:
+            try:
+                # second, try to load it from .a pre-saved TLC.npy file
+                assert(remake == False)
+                self.load(self.directory)
+                assert(self.bad.shape == self.flux.shape)
+                isnew = False
+                self.speak('initialized {} from .pre-saved file {}'.format(self, self.directory))
+            except (IOError,AssertionError):
+                # third, try to load it from .a raw file (often slower than the first two)
+                self.fromFile(self.inputfilename, **kwargs)
+                self.speak("failed to load!")
+                self.speak('initialized {} from .raw file {}'.format(self, self.inputfilename))
+
+
+        try:
+            self.bad
+        except AttributeError:
+            self.bad = np.isfinite(self.flux) == False
+
+        try:
+            self.flux
+        except AttributeError:
+            self.bad = np.array([])
+            return None
+
+        # make sure an array of "bad" values is defined
+        try:
+            self.bad
+        except AttributeError:
+            haschanged = True
+            self.speak("$$$$$$$$$ bad wasn't defined!")
+            try:
+                self.bad = kwargs['bad']
+            except KeyError:
+                self.bad = np.isfinite(self.flux) == False
+        assert(self.bad.shape == self.flux.shape)
+
+        if haschanged & (self.isfake == False):
+            zachopy.utils.mkdir(self.directory)
+            self.save(self.directory)
+
 
     def fromFile(self, filename):
-        '''specific light curve formats inheriting from TLC
-            might need to replace this default reader'''
+        '''specific light curve formats inheriting from .TLC
+            might need to replace this default reader
+
+            it must at the very least define'''
 
         assert(filename is not None)
         # read in the ascii file
@@ -38,139 +176,12 @@ class TLC(Talker):
         kwargs['uncertainty'] /= medflux
         kwargs['flux'] /= medflux
 
-        # populate the light curve from these arrays
+        # populate the light curve from .these arrays
         self.fromArrays(**kwargs)
 
-    def __init__(self, bjd=None, flux=None, uncertainty=None,
-                        inputfilename=None, directory=None,
-                        path=None,
-                        left=None, right=None,
-                        name=None,
-                        remake=False,
-                        color='slategray',
-                        isfake=False,
-                        telescope=None, epoch=None,
-                        **kwargs):
-
-        # initialize the Talker object
-        Talker.__init__(self)
-        self.pithy=True
-        self.color = color
-        self.speak('creating an empty TLC')
-
-        self.rescaling = 1.0
-        self.beta = 1.0
-
-        # define a dictionary of flags that can be used for bad data
-        self.flags = dict(outlier=1, saturation=2, custom=4)
-
-        # specify the left and right wavelengths of this bandpass
-        self.left = left
-        self.right = right
-        #print '!!!!!!!!', self.left, self.right
-        # keep track of the telescope (and epoch)
-
-        self.telescope=telescope
-        self.epoch=epoch
-
-        # is this a real light curve, or a fake one?
-        #  (e.g., one at high resolution for plotting)
-        self.isfake = isfake
-
-        # specify the original filename
-        self.inputfilename = inputfilename
-
-        # specify a directory in which to store saved versions of this TLC,
-        #     as well as other outputs (plots, etc...)
-        if path is not None:
-            zachopy.utils.mkdir(path)
-            directory = path + 'T={telescope}_E={epoch}/'.format(**self.__dict__)
-
-        self.directory = directory
-        if self.directory is None:
-            try:
-                self.directory = '/'.join(self.inputfilename.replace('data/', 'fits/').split('/')[:-1]) + '/'
-                zachopy.utils.mkdir(self.directory)
-            except AttributeError:
-                pass
-        self.speak('assigning it the directory {0}'.format(self.directory))
-
-        # initialize the TLC by filling it with data
-        self.initialize(bjd=bjd, flux=flux, uncertainty=uncertainty,
-                        remake=remake,
-                        telescope=telescope, epoch=epoch, **kwargs)
 
 
 
-        # pick the central wavelength of this light curve's bandpass
-        if self.left is None or self.right is None:
-            self.wavelength = None
-        else:
-            self.wavelength = (self.left + self.right)/2.0
-
-
-        # assign a name to this lightcurve
-        if name is None:
-            if self.telescope is None:
-                name = '???'
-            else:
-                name = self.telescope
-            if self.epoch is None:
-                pass
-            else:
-                name += ',E={0}'.format(self.epoch)
-        self.name = name
-
-        # assign the colors for this light curve
-        self.setupColors(color=color)
-
-
-    def initialize(self, bjd=None, flux=None, uncertainty=None,
-                        remake=False, telescope=None, epoch=None,
-                        **kwargs):
-        '''If possible, try to load the light curve from its directory
-            otherwise, create it from raw input file.'''
-
-        try:
-            assert(remake == False)
-            self.load(self.directory)
-            assert(self.bad.shape == self.flux.shape)
-            self.speak('initialized TLC from pre-saved file in {0}'.format(self.directory))
-            haschanged = False
-        except (IOError,AssertionError):
-            self.speak("failed to load!")
-            # if possible, initialize from arrays; if not, load from scratch
-            if bjd is not None and flux is not None:
-                self.fromArrays(bjd, flux, uncertainty, **kwargs)
-                self.speak('initialized TLC from {0}-element arrays'.format(self.n))
-            else:
-                self.fromFile(self.inputfilename, **kwargs)
-                self.speak('initialized TLC from {0}'.format(self.inputfilename))
-            haschanged = True
-
-        self.telescope=telescope
-        self.epoch = epoch
-        try:
-            self.flux
-        except AttributeError:
-            self.bad = np.array([])
-            return None
-
-        # make sure an array of "bad" values is defined
-        try:
-            self.bad
-        except AttributeError:
-            haschanged = True
-            self.speak("$$$$$$$$$ bad wasn't defined!")
-            try:
-                self.bad = kwargs['bad']
-            except KeyError:
-                self.bad = np.isfinite(self.flux) == False
-        assert(self.bad.shape == self.flux.shape)
-
-        if haschanged & (self.isfake == False):
-            zachopy.utils.mkdir(self.directory)
-            self.save(self.directory)
     @property
     def effective_uncertainty(self):
         return self.uncertainty*self.rescaling*self.beta
@@ -194,21 +205,11 @@ class TLC(Talker):
                 self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=2.0)
             else:
                 self.colors['lines'] = color
-                r, g, b = zachopy.color.name2color(color.lower())
-                rgba = np.zeros((self.n, 4))
-                rgba[:,0] = r
-                rgba[:,1] = g
-                rgba[:,2] = b
-                eu = self.effective_uncertainty
-                eu[np.isfinite(eu) == False] = np.inf
-                weights = np.minimum((minimumuncertainty/eu)**2, 1)
-                over = weights > 1
-                weights[over] = 1
-                rgba[:,3] = 1.0*weights
-                self.colors['points'] = rgba
+                self.colors['points'] = color
         else:
             self.colors['points'] = self.color.color(self.wavelength/10)[0:3]
             self.colors['lines'] = 'gray'
+
     @property
     def ok(self):
         return self.bad == False
@@ -219,19 +220,14 @@ class TLC(Talker):
             x = self.bjd
         else:
             x = model.planet.timefrommidtransit(self.bjd)
-        colors = self.colors['points']
-        try:
-            colors[:,3]*=alpha
-        except TypeError:
-            pass
-        plt.scatter(x[ok], self.corrected()[ok], color=colors[ok], edgecolor='none', s=50, linewidth=0)
-        colors[self.bad,3]*0.2
-        plt.scatter(x[self.bad], self.corrected()[self.bad], color=colors[self.bad], marker='x', s=50)
+
+        plt.scatter(x[ok], self.corrected()[ok], color=self.colors['points'], alpha=alpha, edgecolor='none', s=50, linewidth=0)
+        plt.scatter(x[self.bad], self.corrected()[self.bad], color=self.colors['points'], alpha=alpha,  marker='x', s=50)
 
 
 
     def restrictToNight(self, night=None):
-        '''Trim to data from only a particular night.'''
+        '''Trim to data from .only a particular night.'''
 
         # if a night has been selected, restrict to it
         if night is not None:
@@ -244,7 +240,7 @@ class TLC(Talker):
     def trimTo(self, ok):
         '''Trim the TLC to data points where ok == True.'''
 
-        self.speak('trimming from ')
+        self.speak('trimming from .')
         self.bjd
 
 
@@ -333,67 +329,6 @@ class TLC(Talker):
         self.speak('the best beta for {0} is {1} atop the rescaling of {2}'.format(self.name, inflation, self.rescaling))
         return inflation
 
-    def fromArrays(self, bjd, flux, uncertainty=None, **kwargs):
-        '''Populate a TLC from input arrays (used by transmission.py),
-            requires *relative flux units* (not magnitudes!)'''
-
-        # how many data points are in light curve?
-        self.n = len(bjd)
-
-        # define the times
-        self.bjd = np.array(bjd)
-
-        # define the flux array, and normalize it to its median
-        self.flux = np.array(flux)
-
-        # make sure the uncertainty is defined
-        if uncertainty is None:
-            uncertainty = np.ones_like(self.flux)
-        else:
-            self.uncertainty = np.array(uncertainty)
-
-        self.uncertainty /= np.nanmedian(flux)
-        self.flux /= np.nanmedian(flux)
-
-
-        # populate the external variables, both as a list and as individual entries
-        self.externalvariables = {}
-        for key, value in kwargs.iteritems():
-            if len(value) == len(self.bjd):
-                if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength':
-                    self.externalvariables[key] = value
-                else:
-                    self.speak( "   " +  key+  " was skipped")
-            else:
-                self.speak(key + ' has length '+  str(len(value)))
-
-    def save(self, directory, verbose=True):
-        '''Tool to save a light curve to a directory.'''
-        self.directory = directory
-        tosave = {}
-        for k in self.__dict__.keys():
-            if k != 'TM' and k!= 'TLC' and 'ax_' not in k and 'points_' not in k and 'line_' not in k and 'figure_' not in k:
-                tosave[k] = self.__dict__[k]
-                self.speak( " saved " + k)
-                #if k == 'externalvariables':
-                    #self.speak( "      " + k + ', including:')
-                    #for evkey in tosave[k].keys():
-                        #self.speak( "          " + evkey)
-
-        zachopy.utils.mkdir(directory)
-        filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
-
-        np.save(filename, tosave)
-        self.speak("saving light curve to {directory}, including all its external variables".format(directory=directory))
-
-    def load(self, directory):
-        self.directory = directory
-        filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
-        self.speak('trying to load TLC from {0}'.format(filename))
-        loaded = np.load(filename)[()]
-        for key in loaded.keys():
-            self.speak( ' loaded ' + key)
-            self.__dict__[key] = loaded[key]
 
 
 
@@ -469,7 +404,7 @@ class TLC(Talker):
             self.ax_instrument.set_ylabel('transit\nresiduals\n(ppm)')
             self.ax_corrected.set_ylabel('Corrected Photometry')
             self.ax_residuals.set_ylabel('final\nresiduals\n(ppm)')
-            self.ax_residuals.set_xlabel('Time from Mid-Transit (days)')
+            self.ax_residuals.set_xlabel('Time from .Mid-Transit (days)')
 
             # set up the y limits (is this necessary?)
             self.ax_raw.set_ylim(np.min(self.flux), np.max(self.flux))
@@ -521,34 +456,29 @@ class TLC(Talker):
     def setupLightcurvePlots(self, everything=True):
 
         '''Setup the axes needed for plotting a light curve, with both unphased and phased.'''
-        try:
-            # if the plot window is already set up, don't do anything!
-            self.ax_unphased
 
-        except:
+        # set up the grid for plotting
+        gs_lightcurve = plt.matplotlib.gridspec.GridSpec(2, 2, width_ratios=[2,1], wspace=0.0, hspace=0.25)
 
-            # set up the grid for plotting
-            gs_lightcurve = plt.matplotlib.gridspec.GridSpec(2, 2, width_ratios=[2,1], wspace=0.0, hspace=0.25)
+        # set up the light curve (and residual) panels (leaving a space between the uncorrected and the corrected
+        self.ax_phased = plt.subplot(gs_lightcurve[0,0])
+        self.ax_unphased = plt.subplot(gs_lightcurve[1,0], sharey=self.ax_phased)
+        self.ax_phased_zoom = plt.subplot(gs_lightcurve[0,1], sharey=self.ax_phased)
+        self.ax_unphased_zoom = plt.subplot(gs_lightcurve[1,1], sharey=self.ax_phased, sharex=self.ax_phased_zoom)
 
-            # set up the light curve (and residual) panels (leaving a space between the uncorrected and the corrected
-            self.ax_phased = plt.subplot(gs_lightcurve[0,0])
-            self.ax_unphased = plt.subplot(gs_lightcurve[1,0], sharey=self.ax_phased)
-            self.ax_phased_zoom = plt.subplot(gs_lightcurve[0,1], sharey=self.ax_phased)
-            self.ax_unphased_zoom = plt.subplot(gs_lightcurve[1,1], sharey=self.ax_phased, sharex=self.ax_phased_zoom)
+        # hide the tick labels on most of the light curve panels
+        for a in [self.ax_phased_zoom]:
+            plt.setp(a.get_xticklabels(), visible=False)
 
-            # hide the tick labels on most of the light curve panels
-            for a in [self.ax_phased_zoom]:
-                plt.setp(a.get_xticklabels(), visible=False)
+        for a in [self.ax_phased_zoom, self.ax_unphased_zoom]:
+            plt.setp(a.get_yticklabels(), visible=False)
 
-            for a in [self.ax_phased_zoom, self.ax_unphased_zoom]:
-                plt.setp(a.get_yticklabels(), visible=False)
-
-            # set up the labels for the light curve panels
-            self.ax_unphased.set_xlabel('Time since {0:.3f}'.format(self.TM.planet.t0.value))
-            self.ax_phased.set_xlabel('Phased Time from Mid-transit (days)')
-            self.ax_unphased_zoom.set_xlabel('Time from Mid-transit (days)')
-            self.ax_unphased.set_ylabel('Relative Flux')
-            self.ax_phased.set_ylabel('Relative Flux')
+        # set up the labels for the light curve panels
+        self.ax_unphased.set_xlabel('Time since {0:.3f}'.format(self.TM.planet.t0.value))
+        self.ax_phased.set_xlabel('Phased Time from .Mid-transit (days)')
+        self.ax_unphased_zoom.set_xlabel('Time from .Mid-transit (days)')
+        self.ax_unphased.set_ylabel('Relative Flux')
+        self.ax_phased.set_ylabel('Relative Flux')
 
 
     def fake(self, new_bjd):
@@ -580,7 +510,8 @@ class TLC(Talker):
         self.setupLightcurvePlots()
 
         # create smoothed TLC structures, so the modeling will work
-        self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 10000))
+        self.TM.smooth_phased_tlc = self.fake(np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01,
+                                                            self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 10000))
         self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 1000))
 
 
@@ -591,7 +522,7 @@ class TLC(Talker):
 
         try:
             assert(self.ready)
-        except:
+        except AssertionError:
             self.points_phased = self.ax_phased.plot(t_phased, self.flux, **kw)
             self.points_phased_zoom = self.ax_phased_zoom.plot(t_phased, self.flux, **kw)
             self.points_unphased = self.ax_unphased.plot(t_unphased, self.flux, **kw)
@@ -602,6 +533,7 @@ class TLC(Talker):
             phased.set_data(t_phased, self.flux)
         for unphased in [self.points_unphased[0], self.points_unphased_zoom[0]]:
             unphased.set_data(t_unphased, self.flux)
+
         self.TM.plot()
 
         nsigma=5
@@ -679,7 +611,8 @@ class TLC(Talker):
         self.TM.smooth_phased_tlc = self.fake( np.linspace(-self.TM.planet.period.value/2.0 + self.TM.planet.t0.value + 0.01, self.TM.planet.period.value/2.0 + self.TM.planet.t0.value-0.01, 10000))
         self.TM.smooth_unphased_tlc = self.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 10000))
 
-        goodkw = {'color':self.colors['points'], 'alpha':1, 'linewidth':0, 'marker':'o', 'edgecolor':self.colors['points'], 's':20}
+        #cmap = one2another(bottom=self.color, alphabottom=0.0, top=self.color, alphatop=1.0)
+        goodkw = {'color':self.colors['points'], 'alpha':1, 'linewidth':0, 'marker':'o', 'edgecolor':self.colors['points'], 's':20, }
         badkw = {'color':self.colors['points'], 'alpha':0.25, 'linewidth':0, 'marker':'x', 'edgecolor':self.colors['points'], 's':20}
         time = self.TM.planet.timefrommidtransit(self.bjd)
 
@@ -818,7 +751,7 @@ class TLC(Talker):
         return d
 
     def gp_lines(self, mean=True, resolution=300):
-        '''if mean=True, will return the mean of the GP prediction; otherwise, will sample from it'''
+        '''if mean=True, will return the mean of the GP prediction; otherwise, will sample from .it'''
         # make sure a smooth fake TLC is set up
         try:
             self.smoothed
@@ -980,7 +913,7 @@ def demo():
     star = Star(u1=0.3, u2=0.3, gd=0.32, albedo=0)
     tm = TM(planet=planet, star=star)
     (p1, p4, s1, s4) = planet.contacts()
-    print planet.contacts()
+    print( planet.contacts())
     duration = (p4 - p1 + 1)*planet.period.value
     t = np.linspace(planet.t0.value - duration, planet.t0.value + duration, 1000)
     uncertainty = 0.003*np.ones_like(t)

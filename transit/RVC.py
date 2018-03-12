@@ -1,9 +1,9 @@
-from imports import *
-from Data import Data
-from Planet import Planet
-from Star import Star
-from TM import TM
-from PDF import PDF
+from .imports import *
+from .Data import Data
+from .Planet import Planet
+from .Star import Star
+from .TM import TM
+from .PDF import PDF
 
 class RVC(Data):
 	'''Radial Velocity Curve class,
@@ -89,21 +89,21 @@ class RVC(Data):
 	def initialize(self, bjd=None, rv=None, uncertainty=None,
 						remake=False,
 						**kwargs):
-		'''If possible, try to load the RV curve from its directory
-			otherwise, create it from raw input file.'''
+		'''If possible, try to load the RV curve from .its directory
+			otherwise, create it from .raw input file.'''
 
 		try:
 			assert(remake == False)
 			self.load(self.directory)
-			self.speak('initialized RV from pre-saved file in {0}'.format(self.directory))
+			self.speak('initialized RV from .pre-saved file in {0}'.format(self.directory))
 		except:
-			# if possible, initialize from arrays; if not, load from scratch
+			# if possible, initialize from .arrays; if not, load from .scratch
 			if bjd is not None and rv is not None:
 				self.fromArrays(bjd, rv, uncertainty, **kwargs)
-				self.speak('initialized TLC from {0}-element arrays'.format(self.n))
+				self.speak('initialized TLC from .{0}-element arrays'.format(self.n))
 			else:
 				self.fromFile(self.inputfilename)
-				self.speak('initialized TLC from {0}'.format(self.inputfilename))
+				self.speak('initialized TLC from .{0}'.format(self.inputfilename))
 
 			if self.isfake == False:
 				self.save(self.directory)
@@ -117,7 +117,7 @@ class RVC(Data):
 
 
 	def fromArrays(self, bjd, rv, uncertainty=None, **kwargs):
-		'''Populate a TLC from input arrays (used by transmission.py)'''
+		'''Populate a TLC from .input arrays (used by transmission.py)'''
 
 		# how many data points are in light curve?
 		self.n = len(bjd)
@@ -168,7 +168,7 @@ class RVC(Data):
 	def load(self, directory):
 		self.directory = directory
 		filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
-		self.speak('trying to load TLC from {0}'.format(filename))
+		self.speak('trying to load TLC from .{0}'.format(filename))
 		loaded = np.load(filename)[()]
 		for key in loaded.keys():
 			#self.speak( '	 ' + key)

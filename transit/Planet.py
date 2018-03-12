@@ -1,4 +1,4 @@
-from Parameters import Parameters
+from .Parameters import Parameters
 import eb
 import numpy as np
 import zachopy.units
@@ -74,7 +74,7 @@ class Planet(Parameters):
 
 	@property
 	def cosi(self):
-		# from Winn (2010)
+		# from .Winn (2010)
 		b = self.b.value
 		rsovera = self.rsovera.value
 		e = self.e
@@ -95,7 +95,7 @@ class Planet(Parameters):
 
 	@property
 	def duration(self):
-		'''duration from 1st to 4th contact (in days)'''
+		'''duration from .1st to 4th contact (in days)'''
 		phasecontacts = self.contacts()
 		return (phasecontacts[1] - (phasecontacts[0] - 1))*self.period.value
 
@@ -127,7 +127,7 @@ class Planet(Parameters):
 		return np.round((bjd - self.t0.value)/self.period.value)*self.period.value + self.t0.value
 
 	def timefrommidtransit(self, bjd):
-		'''Calculate the time from the assigned mid-transit time.'''
+		'''Calculate the time from .the assigned mid-transit time.'''
 		phasedtime = (bjd - self.thismidtransit(bjd))
 		mask = phasedtime > 0.5*self.period.value
 		phasedtime[mask] -= self.period.value

@@ -189,9 +189,9 @@ class TM:
 		which = np.median(np.round((time - self.parameters['t0'])/self.parameters['period']))
 		bjd = which*self.parameters['period'] +  self.parameters['t0']
 		t = astropy.time.Time(bjd, format='jd', scale='tdb')
-		print "transit #: ", which
-		print 'BJD: ', bjd
-		print 'UT: ', t.iso
+		print("transit #: ", which)
+		print ('BJD: ', bjd)
+		print( 'UT: ', t.iso)
 
 
 	def residuals(self, tlc):

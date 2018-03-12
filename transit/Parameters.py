@@ -1,6 +1,6 @@
 import numpy as np
-from Parameter import Parameter
-from zachopy.Talker import Talker
+from .Parameter import Parameter
+from craftroom.Talker import Talker
 
 class Parameters(Talker):
 	'''An object to keep track of an array of parameter.'''
@@ -51,7 +51,7 @@ class Parameters(Talker):
 			if key != 'registered':
 				self.__dict__[key] = loaded[key]
 				self.registered.append(key)
-		self.speak('loaded from {0}'.format(filename))
+		self.speak('loaded from .{0}'.format(filename))
 
 
 

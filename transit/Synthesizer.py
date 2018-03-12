@@ -1,4 +1,4 @@
-from imports import *
+from .imports import *
 import transit.PDF as PDF
 import transit
 ##@profile
@@ -81,7 +81,7 @@ class Synthesizer(Talker):
         self.parameters.append(this)
 
     def popParameter(self, code):
-        '''remove a parameter from the synthesizer's list'''
+        '''remove a parameter from .the synthesizer's list'''
         codes = [par['code'] for par in self.parameters]
         return self.parameters.pop(codes.index(code))
 
@@ -125,7 +125,7 @@ class Synthesizer(Talker):
         return par, parinfo
 
     def fromArray(self, a, verbose=False):
-        '''set the parameters, from an array'''
+        '''set the parameters, from .an array'''
         assert(len(a) == self.m)
         for i in range(self.m):
             for p in self.parameters[i]['parameter']:
@@ -243,7 +243,7 @@ class Synthesizer(Talker):
         '''Return the normalized deviates (an input for mpfit), collected from
             all the transit models.'''
 
-        # update all the parameters inside the models, from the array
+        # update all the parameters inside the models, from .the array
         self.fromArray(p)
 
         # set status to 0
@@ -272,7 +272,7 @@ class Synthesizer(Talker):
         '''Return the normalized deviates (an input for mpfit), collected from
             all the radial velocity curves.'''
 
-        # update all the parameters inside the models, from the array
+        # update all the parameters inside the models, from .the array
         self.fromArray(p)
 
         # set status to 0
@@ -509,7 +509,7 @@ class Synthesizer(Talker):
             # weight only the good points
             ok = (rvc.bad == 0).nonzero()
             thisjitter = np.sum(np.log(1.0/rvc.effective_uncertainty[ok]))
-            key = 'non-chisq jitter term from {0}'.format(rvc.name)
+            key = 'non-chisq jitter term from .{0}'.format(rvc.name)
             self.budget[key] = thisjitter
             jitterconstraint += thisjitter
         extra += jitterconstraint
@@ -522,7 +522,7 @@ class Synthesizer(Talker):
         # calculate the chisq (note "effective_uncertainty" is used in deviates)
         chisq = np.sum(self.deviates(p)[-1]**2)
 
-        # calculate the lnlikelihood from the chisq
+        # calculate the lnlikelihood from .the chisq
         lnlikelihood = - chisq/2.0
 
         # don't let infinitely bad likelihoods break code
@@ -561,7 +561,7 @@ class Synthesizer(Talker):
                     len(self.rvcs))
 
 class Fit(Synthesizer):
-    '''an object for fitting synthesized datasets (LM & MCMC inherit from it)'''
+    '''an object for fitting synthesized datasets (LM & MCMC inherit from .it)'''
     def __init__(self,
                     tlcs=[],
                     rvcs=[],
@@ -607,9 +607,9 @@ class Fit(Synthesizer):
         self.speak('saved modifications to {0}'.format(filename))
 
     def load(self):
-        '''load a fit from a file, including parameters and LC modifcations'''
+        '''load a fit from .a file, including parameters and LC modifcations'''
 
-        self.speak('attempting to load from {0}'.format(self.directory))
+        self.speak('attempting to load from .{0}'.format(self.directory))
         #self.speak('  the PDF')
         self.pdf = PDF.load(self.directory + 'pdf.npy')
         #self.speak('  the fitting notes')
@@ -633,7 +633,7 @@ class Fit(Synthesizer):
         else:
             filename = self.directory + 'modifications.npy'
         modifications = np.load(filename)
-        self.speak('loaded TLC modifications from {0}'.format(filename))
+        self.speak('loaded TLC modifications from .{0}'.format(filename))
         assert(len(modifications) == len(self.tlcs))
 
         # loop over the modications, and apply them
@@ -726,7 +726,7 @@ class Fit(Synthesizer):
         pinitial = self.toArray()[0]
         self.budget = {}
         self.lnprob(pinitial)
-        print self.budget
+        print( self.budget)
 
         self.gp_inputs = []
         self.gp_outputs = []
@@ -744,7 +744,7 @@ class Fit(Synthesizer):
             gplna_map, gplna_unc = gplna
             gplntau_map, gplntau_unc = gplntau
 
-            self.speak('loaded gp parameters from file')
+            self.speak('loaded gp parameters from .file')
         except IOError:
             # use nelder-mead to optimize (often fails)
             #scipy.optimize.minimize(nlnprob, pinitial, method='nelder-mead')
@@ -862,7 +862,7 @@ class LM(Fit):
             self.load()
             return
         except (AssertionError,IOError):
-            self.speak('could not load this fit, making it from scratch!')
+            self.speak('could not load this fit, making it from .scratch!')
 
         # if priors on physical parameters are being used, keep track of them
         self.densityprior=densityprior
@@ -967,7 +967,7 @@ class MCMC(Fit):
         broad=True, ldpriors=True, fromcovariance=True,
         densityprior=None, periodprior=None, t0prior=None, eprior=None,
         plot=True, interactive=False, remake=False, updates=10, **kwargs):
-        '''Use MCMC (with the emcee) to sample from the parameter probability distribution.'''
+        '''Use MCMC (with the emcee) to sample from .the parameter probability distribution.'''
 
         # keep track of the priors
         self.densityprior=densityprior
@@ -975,14 +975,14 @@ class MCMC(Fit):
         self.t0prior=t0prior
         self.eprior=eprior
 
-        # either load the MCMC fit, or run it from scratch
+        # either load the MCMC fit, or run it from .scratch
         self.speak('running an MCMC fit')
         try:
             assert(remake==False)
             self.load()
             return
         except (IOError,AssertionError):
-            self.speak('could not load this MCMC fit, remaking it from scratch')
+            self.speak('could not load this MCMC fit, remaking it from .scratch')
 
         # do an LM minization to clip outliers and rescale uncertainties
         if len(self.tlcs) > 0:    # create a LM fit to initialize the outlier rejection and rescaling
@@ -1041,7 +1041,7 @@ class MCMC(Fit):
                 top = np.max(parameter.limits)
 
             initialwalkers[:,i] = np.random.uniform(bottom, top, nwalkers)
-            self.speak('  {parameter.name} picked from uniform distribution spanning {bottom} to {top}'.format(**locals()))
+            self.speak('  {parameter.name} picked from .uniform distribution spanning {bottom} to {top}'.format(**locals()))
 
         # set up the emcee sampler
         self.sampler = emcee.EnsembleSampler(nwalkers, nparameters, self.lnprob)
@@ -1203,7 +1203,7 @@ class MCMC(Fit):
         self.fromArray(best)
 
     def fromPDF(self, option='best'):
-        self.speak('drawing {0} sample from PDF'.format(option))
+        self.speak('drawing {0} sample from .PDF'.format(option))
         values = self.pdf.drawSample(keys=[p['code'] for p in self.parameters], option=option)
         self.fromArray(values)
 

@@ -1,5 +1,5 @@
-from imports import *
-from zachopy.units import *
+from .imports import *
+from craftroom.units import *
 
 def K( planet_mass=None, stellar_mass=None, period=None):
     '''Calculate K, in cm/s, given:

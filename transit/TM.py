@@ -1,15 +1,15 @@
 import numpy as np, matplotlib.pyplot as plt
 import eb
-from Planet import Planet
-from Star import Star
-from Instrument import Instrument
+from .Planet import Planet
+from .Star import Star
+from .Instrument import Instrument
 import PDF
 import zachopy.color, zachopy.oned
 import matplotlib.gridspec
 import matplotlib.patches
 import copy
-from zachopy.Talker import Talker
-from Fits import LM, MCMC
+from craftroom.Talker import Talker
+from .Fits import LM, MCMC
 ppm = 1e6
 
 class TM(Talker):
@@ -49,9 +49,9 @@ class TM(Talker):
 
 
 	def load(self, directory):
-		'''Load parameters from directory.'''
+		'''Load parameters from .directory.'''
 		#self.directory = directory
-		self.speak('loading TM from {0}'.format(directory))
+		self.speak('loading TM from .{0}'.format(directory))
 		self.planet = Planet(directory=directory)
 		self.star = Star(directory=directory)
 		self.instrument = Instrument(directory=directory)
@@ -134,7 +134,7 @@ class TM(Talker):
 		# flexibility to be able to model just light curves, SB1s, or SB2s.
 		#
 		# For improved precision, it's best to subtract most of the "DC offset"
-		# from T0 and the time array (e.g. take off the nominal value of T0 or
+		# from .T0 and the time array (e.g. take off the nominal value of T0 or
 		# the midtime of the data array) and add it back on at the end when
 		# printing self.ebparams[eb.PAR_T0] and vder[eb.PAR_TSEC].  Likewise the period
 		# can cause scaling problems in minimization routines (because it has
@@ -261,14 +261,14 @@ class TM(Talker):
 			toplot = np.convolve(toplot, kernel, 'same')
 		else:
 			toplot = self.planet_model(self.smooth_phased_tlc)
-		plt.plot(t_phased, toplot, **kw)
-		'''KLUDGED COMMENTED OUT!'''
-		#try:
-		#	for phased in [self.line_phased[0], self.line_phased_zoom[0]]:
-		#		phased.set_data(t_phased, self.model(self.smooth_phased_tlc))
-		#except:
-		#	self.line_phased = self.TLC.ax_phased.plot(t_phased,self.model(self.smooth_phased_tlc), **self.kw)
-		#	self.line_phased_zoom = self.TLC.ax_phased_zoom.plot(t_phased, self.model(self.smooth_phased_tlc), **self.kw)'''
+		#plt.plot(t_phased, toplot, **kw)
+		# '''KLUDGED COMMENTED OUT!'''
+		try:
+			for phased in [self.line_phased[0], self.line_phased_zoom[0]]:
+				phased.set_data(t_phased, self.model(self.smooth_phased_tlc))
+		except AttributeError:
+			self.line_phased = self.TLC.ax_phased.plot(t_phased,self.model(self.smooth_phased_tlc), **self.kw)
+			self.line_phased_zoom = self.TLC.ax_phased_zoom.plot(t_phased, self.model(self.smooth_phased_tlc), **self.kw)
 
 	def plotUnphased(self):
 		'''Plot the light curve model, linear in time.'''
@@ -277,7 +277,7 @@ class TM(Talker):
 		try:
 			for unphased in [self.line_unphased[0], self.line_unphased_zoom[0]]:
 				unphased.set_data(t_unphased, self.model(self.smooth_unphased_tlc))
-		except:
+		except AttributeError:
 			self.line_unphased = self.TLC.ax_unphased.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
 			self.line_unphased_zoom = self.TLC.ax_unphased_zoom.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
 
@@ -359,7 +359,7 @@ class TM(Talker):
 
 	##@profile
 	def lnprob(self, p):
-		"""Return the log posterior, calculated from the TM.deviates function (which may have included some conjugate Gaussian priors.)"""
+		"""Return the log posterior, calculated from .the TM.deviates function (which may have included some conjugate Gaussian priors.)"""
 
 
 

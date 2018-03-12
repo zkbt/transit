@@ -1,6 +1,6 @@
-from Plots import Plot
-from imports import *
-from zachopy.painting import ink_errorbar
+from .Plots import Plot
+from .imports import *
+from craftroom.painting import ink_errorbar
 import zachopy.cmaps
 
 scale = 1e3
@@ -22,7 +22,7 @@ class RVPhasedPlot(Plot):
         self.axes = {}
         self.axes[self.label] = plt.subplot(gs[-1])
         self.axes[self.label].set_ylabel('Radial velocity (m/s)', fontsize=8)
-        self.axes[self.label].set_xlabel('Phased time from mid-transit (days)', fontsize=8)
+        self.axes[self.label].set_xlabel('Phased time from .mid-transit (days)', fontsize=8)
 
     def x(self, rvc):
         return rvc.TM.planet.timefrommidtransit(rvc.bjd)
@@ -49,8 +49,8 @@ class RVPhasedPlot(Plot):
             minimumuncertainty = np.min(rvc.effective_uncertainty)
             weights = np.minimum((minimumuncertainty/rvc.effective_uncertainty)**2, 1)
             ink_errorbar(x, y, yerr, colors=cmap(weights), alpha=1, zorder=weights, **kw)
-            print weights
-            print cmap(weights)
+            print( weights)
+            print( cmap(weights))
 
             ghosts = [-1,1]
             for ghost in ghosts:
