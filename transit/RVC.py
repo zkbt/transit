@@ -47,7 +47,7 @@ class RVC(Data):
 		if self.directory is None:
 			try:
 				self.directory = '/'.join(self.inputfilename.replace('data/', 'fits/').split('/')[:-1]) + '/'
-				zachopy.utils.mkdir(self.directory)
+				mkdir(self.directory)
 			except AttributeError:
 				pass
 		self.speak('assigning it the directory {0}'.format(self.directory))
@@ -136,11 +136,11 @@ class RVC(Data):
 
 
 		# populate the external variables, both as a list and as individual entries
-		self.externalvariables = {}
+		self.cotrending = {}
 		for key, value in kwargs.iteritems():
 			if len(value) == len(self.bjd):
 				if key != 'bjd' and key != 'rv' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength' and key!= 'bad':
-					self.externalvariables[key] = value
+					self.cotrending[key] = value
 				else:
 					self.speak( "   " +  key+  " was skipped")
 			else:
@@ -154,12 +154,12 @@ class RVC(Data):
 			if k != 'TM' and k!= 'TLC' and 'ax_' not in k and 'points_' not in k and 'line_' not in k and 'figure_' not in k:
 				tosave[k] = self.__dict__[k]
 				#self.speak( "	  " + k)
-				#if k == 'externalvariables':
+				#if k == 'cotrending':
 					#self.speak( "	  " + k + ', including:')
 					#for evkey in tosave[k].keys():
 						#self.speak( "		  " + evkey)
 
-		zachopy.utils.mkdir(directory)
+		mkdir(directory)
 		filename = directory + str(self.__class__).split('.')[-1].split("'")[0] + '.npy'
 
 		np.save(filename, tosave)

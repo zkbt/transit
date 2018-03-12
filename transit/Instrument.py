@@ -20,7 +20,7 @@ class Instrument(Parameters):
 		try:
 			# include terms of (ev)^power for all the external variables available
 			for power in np.arange(order)+1:
-				for evkey in tlc.externalvariables.keys():
+				for evkey in tlc.cotrending.keys():
 					dict[evkey + '_tothe{0:1d}'.format(power)] = 0.0
 
 			# include (t)^power terms for time (CURRENTLY SET UP ONLY FOR SINGLE TRANSITS!)
@@ -84,7 +84,7 @@ class Instrument(Parameters):
 					if k == 't':
 						x = tlc.bjd
 					else:
-						x = tlc.externalvariables[name]
+						x = tlc.cotrending[name]
 					tlc._normalized[k] = self.normalize(x, ok=(tlc.bad == False))
 					ev = tlc._normalized[k]
 

@@ -1,8 +1,9 @@
 from craftroom.Talker import Talker
 import matplotlib.pyplot as plt, numpy as np
-import zachopy.borrowed.mpfit.mpfit as mpfit
-import zachopy.oned
-import .pemcee as emcee
+#import craftroom.borrowed.mpfit.mpfit as mpfit
+import craftroom.oned
+# as emcee
+import emcee
 import transit.PDF as PDF
 ##@profile
 
@@ -28,7 +29,7 @@ class Fit(Talker):
 
     def save(self):
         """Save this fit, so it be reloaded quickly next time."""
-        zachopy.utils.mkdir(self.directory)
+        mkdir(self.directory)
         self.speak('saving LM fit to {0}'.format(self.directory))
         self.speak('  the PDF')
         self.pdf.save(self.directory + 'pdf.npy')

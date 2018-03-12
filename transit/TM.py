@@ -3,8 +3,8 @@ import eb
 from .Planet import Planet
 from .Star import Star
 from .Instrument import Instrument
-import PDF
-import zachopy.color, zachopy.oned
+
+import craftroom.color, zachopy.oned
 import matplotlib.gridspec
 import matplotlib.patches
 import copy

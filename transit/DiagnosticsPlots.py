@@ -48,11 +48,11 @@ class DiagnosticsPlots(Plot):
                         if k in self.tlc.TM.instrument.__dict__.keys() and k != 'rescaling':
                             self.to_correlate.append(k.split('_tothe')[0])
             elif correlations == 'all':
-                for k in self.tlc.externalvariables.keys():
+                for k in self.tlc.cotrending.keys():
                   if (k == 'ok') or (k == 'bad'):
                       # # a = raw_input('line 53')
                       continue
-                  if np.std(self.tlc.externalvariables[k]) > 0:
+                  if np.std(self.tlc.cotrending[k]) > 0:
                       self.to_correlate.append(k.split('_tothe')[0])
             ncor = np.int(np.ceil(np.sqrt(len(self.to_correlate))))
             gs_external = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
@@ -201,11 +201,11 @@ class DiagnosticsPlots(Plot):
             self.tlc.points_correlations = {}
             kw['s'] = 10
             for k in self.ax_correlations.keys():
-                #self.ax_correlations[k].plot(ppm*self.tlc.instrumental()[ok], self.tlc.externalvariables[k][ok], **kw)[0]
-                #self.ax_timeseries[k].plot( time[ok], self.tlc.externalvariables[k][ok], **kw)
+                #self.ax_correlations[k].plot(ppm*self.tlc.instrumental()[ok], self.tlc.cotrending[k][ok], **kw)[0]
+                #self.ax_timeseries[k].plot( time[ok], self.tlc.cotrending[k][ok], **kw)
 
                 # plot the external variables
-                x = self.tlc.externalvariables[k]
+                x = self.tlc.cotrending[k]
                 res, inst = self.tlc.residualsexceptfor(k, modeltoo=True)
                 self.ax_correlations[k].scatter(ppm*(res[ok]), x[ok], **kw)
                 if good:
@@ -214,12 +214,12 @@ class DiagnosticsPlots(Plot):
                     self.ax_correlations[k].errorbar(by, bx, None, be, color='black', alpha=0.3, elinewidth=3, marker='o', linewidth=0, capthick=3)
                     sorted = np.argsort(x[ok])
                     self.ax_correlations[k].plot(ppm*inst[ok][sorted], x[ok][sorted], color='gray', linewidth=3, alpha=0.75 )
-                self.ax_timeseries[k].scatter( time[ok], self.tlc.externalvariables[k][ok], **kw)
+                self.ax_timeseries[k].scatter( time[ok], self.tlc.cotrending[k][ok], **kw)
 
                 # set limits of plot windows
                 if good:
                     self.ax_correlations[k].set_xlim(ppm*np.min(self.tlc.instrumental()[ok]), ppm*np.max(self.tlc.instrumental()[ok]))
-                    self.ax_timeseries[k].set_ylim(np.min(self.tlc.externalvariables[k][ok]), np.max(self.tlc.externalvariables[k][ok]))
+                    self.ax_timeseries[k].set_ylim(np.min(self.tlc.cotrending[k][ok]), np.max(self.tlc.cotrending[k][ok]))
 
         # a = raw_input('done with loop')
         ok = (self.tlc.bad == 0).nonzero()
@@ -259,7 +259,7 @@ class DiagnosticsPlots(Plot):
         kw['alpha'] = 0.5
         kw['linewidth'] = 1
         #for k in self.ax_correlations.keys():
-            #self.tlc.line_correlations[k] = self.ax_correlations[k].plot(ppm*justinstrument, self.tlc.TM.smooth_unphased_tlc.externalvariables[k],  **kw)[0]
+            #self.tlc.line_correlations[k] = self.ax_correlations[k].plot(ppm*justinstrument, self.tlc.TM.smooth_unphased_tlc.cotrending[k],  **kw)[0]
         #assert(np.std(ppm*justinstrument)>1)
 
         nsigma = 5

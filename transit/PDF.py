@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec
-from ..Parameter import Parameter
+from .Parameter import Parameter
 from craftroom.Talker import Talker
 import copy
 import scipy.special

@@ -1,23 +1,23 @@
 from .Parameters import Parameters
 import eb
 import numpy as np
-import zachopy.units
+import craftroom.units
 
 class Planet(Parameters):
 	'''Parameters (both set and calculated) describing a planet.'''
 	def __init__(self, **kwargs):
 
 		# define defaults
-		Parameters.__init__(self, 	J=0.0, \
-									k=0.1, \
-									rsovera=1.0/10.0, \
-									b=0.0, \
-									period=10.0, \
-									t0=2456000.0, \
-									dt=0.0, \
-									semiamplitude=0.0, \
-									esinw=0.0, \
-									ecosw=0.0)
+		Parameters.__init__(self, 	J=0.0, 					# flux ratio
+									k=0.1, 					# radius ratio
+									rsovera=1.0/10.0, 		# semimajor axis ratio
+									b=0.0, 					# impact parameters
+									period=10.0, 			# orbital period
+									t0=2456000.0, 			# epoch
+									dt=0.0, 				# timing offset
+									semiamplitude=0.0, 		# RV semiamplitude
+									esinw=0.0, 				# eccentricity component
+									ecosw=0.0)				# eccentricity component
 
 		# overwrite defaults with input keywords
 		Parameters.__init__(self, **kwargs)
@@ -117,7 +117,6 @@ class Planet(Parameters):
 		b = self.b.value
 		sini = self.sini
 		return period/np.pi*np.arcsin(rsovera/sini*np.sqrt((1.0 - k)**2 - b**2))
-
 
 
 	def thisepoch(self, bjd):

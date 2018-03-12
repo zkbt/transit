@@ -578,16 +578,16 @@ class Fit(Synthesizer):
         # assign a directory for this fit
         if directory == None:
             base = 'synthesized/'
-            zachopy.utils.mkdir(base)
+            mkdir(base)
             directory = base + self.label + '/'
         self.directory = directory
-        zachopy.utils.mkdir(self.directory)
+        mkdir(self.directory)
 
     def save(self):
         '''save this fit, so it be reloaded quickly next time.'''
 
         # create a directory, if need be
-        zachopy.utils.mkdir(self.directory)
+        mkdir(self.directory)
 
         # save the PDF, which contains all the information about the fit
         self.speak('saving LM fit to {0}'.format(self.directory))
@@ -737,7 +737,7 @@ class Fit(Synthesizer):
             return -lnprob
 
         d = self.directory+'gp/'
-        zachopy.utils.mkdir(d)
+        mkdir(d)
         storedvalues = d + 'gplnagplntau.txt'
         try:
             gplna, gplntau = np.loadtxt(storedvalues)
@@ -839,7 +839,7 @@ class LM(Fit):
 
         # specify the directory for the LM
         self.directory = self.directory + 'lm/'
-        zachopy.utils.mkdir(self.directory)
+        mkdir(self.directory)
 
     def fit(self,   plot=False,
                     quiet=False,
@@ -960,7 +960,7 @@ class MCMC(Fit):
         Fit.__init__(self, tlcs=tlcs, rvcs=rvcs,
                         likelihoodtype=likelihoodtype, **kwargs)
         self.directory = self.directory + 'mcmc/'
-        zachopy.utils.mkdir(self.directory)
+        mkdir(self.directory)
 
     def fit(self,
         nburnin=500, ninference=1000, nwalkers=500, nleap=20, npreburnin=100,
@@ -1106,7 +1106,7 @@ class MCMC(Fit):
                     else:
                         output = d + '{0:03.0f}_burnin'.format(index)
 
-                zachopy.utils.mkdir(d)
+                mkdir(d)
                 plt.ioff()
                 save = True
 

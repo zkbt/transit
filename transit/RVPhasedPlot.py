@@ -1,7 +1,7 @@
 from .Plots import Plot
 from .imports import *
 from craftroom.painting import ink_errorbar
-import zachopy.cmaps
+import craftroom.cmaps
 
 scale = 1e3
 class RVPhasedPlot(Plot):

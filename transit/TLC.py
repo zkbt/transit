@@ -6,11 +6,6 @@ from .PDF import PDF
 
 ppm = 1e6
 
-class fakeTLC(TLC):
-    def __init__(self, **kw):
-        TLC.__init__(self, **kw)
-        self.isfake = True
-
 
 class TLC(Talker):
     '''Transit Light Curve objects store both light curve data and auxiliary variables.'''
@@ -29,12 +24,13 @@ class TLC(Talker):
                         left=None, right=None,  # what's the wavelength range of this TLC?
                         name=None,              # give this a custom name (otherwise, will be created from .T + E)
 
-                        color='slategray'       # give this light curve a color, for plotting
+                        color='slategray',       # give this light curve a color, for plotting
                         **kwargs):
 
         # initialize the Talker object
         Talker.__init__(self)
         self.color = color
+        self.isfake = False
 
         # initialize a white and red rescaling
         self.rescaling = 1.0
@@ -50,6 +46,13 @@ class TLC(Talker):
         # keep track of the telescope (and epoch)
         self.telescope=telescope
         self.epoch=epoch
+
+        # what are the things that must be defined and/or saved
+        self.saveable = ['bjd', 'flux', 'uncertainty', 'bad',
+                         'cotrending',
+                         'beta', 'rescaling',
+                         'left', 'right',
+                         'telescope', 'epoch', 'name']
 
         # assign a name to this lightcurve
         if name is None:
@@ -68,25 +71,24 @@ class TLC(Talker):
         if self.directory is None:
             # if there's a base directory, define a new directory for this light curve
             if basedirectory is not None:
-                zachopy.utils.mkdir(basedirectory)
+                mkdir(basedirectory)
                 self.directory = os.path.join(basedirectory, 'T={telescope}_E={epoch}/'.format(**self.__dict__))
         if self.directory is not None:
-            zachopy.utils.mkdir(self.directory)
+            mkdir(self.directory)
 
         # initialize the TLC by filling it with data
         self.initialize(bjd=bjd, flux=flux, uncertainty=uncertainty,
                         telescope=telescope, epoch=epoch, **cotrending)
 
-        # pick the central wavelength of this light curve's bandpass
-        if self.left is None or self.right is None:
-            self.wavelength = None
-        else:
-            self.wavelength = (self.left + self.right)/2.0
-
-
         # assign the colors for this light curve
         self.setupColors(color=color)
 
+    @property
+    def wavelength(self):
+        try:
+            return (self.left + self.right)/2.0
+        except ValueError:
+            return None
 
     def initialize(self, bjd=None, flux=None, uncertainty=None, cotrending={},
                          remake=False, telescope=None, epoch=None,
@@ -102,6 +104,7 @@ class TLC(Talker):
             self.fromArrays(bjd, flux, uncertainty, **cotrending)
             self.telescope = telescope
             self.epoch = epoch
+            self.bad = np.isfinite(self.flux) == False
             self.speak('initialized {} directly from .arrays'.format(self, self.n))
         else:
             try:
@@ -133,7 +136,7 @@ class TLC(Talker):
         try:
             self.bad
         except AttributeError:
-            haschanged = True
+            isnew = True
             self.speak("$$$$$$$$$ bad wasn't defined!")
             try:
                 self.bad = kwargs['bad']
@@ -141,9 +144,79 @@ class TLC(Talker):
                 self.bad = np.isfinite(self.flux) == False
         assert(self.bad.shape == self.flux.shape)
 
-        if haschanged & (self.isfake == False):
-            zachopy.utils.mkdir(self.directory)
+        if isnew & (self.isfake == False):
+            mkdir(self.directory)
             self.save(self.directory)
+
+
+    def save(self, directory, verbose=True):
+        '''
+        Save the light curve to a directory, in the fastest way possible.
+        '''
+        self.directory = directory
+        tosave = {}
+        for k in self.saveable:
+            tosave[k] = self.__dict__[k]
+            self.speak( " saved " + k)
+            if k == 'cotrending':
+                self.speak( "      " + k + ', including:')
+                for evkey in tosave[k].keys():
+                    self.speak( "          " + evkey)
+
+        mkdir(directory)
+        np.save(self.filename, tosave)
+        self.speak("saving light curve to {directory}, including all its external variables".format(directory=directory))
+
+    @property
+    def label(self):
+        return str(self.__class__).split('.')[-1].split("'")[0]
+
+    @property
+    def filename(self):
+        return os.path.join(self.directory, self.label + '.npy')
+
+    def load(self, directory):
+        self.directory = directory
+        self.speak('trying to load TLC from {0}'.format(self.filename))
+        loaded = np.load(self.filename)[()]
+        for key in self.saveable:
+            self.__dict__[key] = loaded[key]
+            self.speak( ' loaded ' + key)
+
+
+    def fromArrays(self, bjd, flux, uncertainty=None, **cotrending):
+        '''Populate a TLC from input arrays (used by transmission.py),
+            requires *relative flux units* (not magnitudes!)'''
+
+        # how many data points are in light curve?
+        self.n = len(bjd)
+
+        # define the times
+        self.bjd = np.array(bjd)
+
+        # define the flux array, and normalize it to its median
+        self.flux = np.array(flux)
+
+        # make sure the uncertainty is defined
+        if uncertainty is None:
+            uncertainty = np.ones_like(self.flux)
+        else:
+            self.uncertainty = np.array(uncertainty)
+
+        self.uncertainty /= np.nanmedian(flux)
+        self.flux /= np.nanmedian(flux)
+
+
+        # populate the external variables, both as a list and as individual entries
+        self.cotrending = {}
+        for key, value in cotrending.iteritems():
+            if len(value) == len(self.bjd):
+                if key != 'bjd' and key != 'flux' and key !='uncertainty' and key !='left' and key !='right' and key !='wavelength':
+                    self.cotrending[key] = value
+                else:
+                    self.speak( "   " +  key+  " was skipped")
+            else:
+                self.speak(key + ' has length '+  str(len(value)))
 
 
     def fromFile(self, filename):
@@ -366,8 +439,8 @@ class TLC(Talker):
                 #    if k != 'C':
                 #        if k in self.TM.instrument.__dict__.keys() and k != 'rescaling':
                 #            self.to_correlate.append(k.split('_tothe')[0])
-                for k in self.externalvariables.keys():
-                    if np.std(self.externalvariables[k]) > 0:
+                for k in self.cotrending.keys():
+                    if np.std(self.cotrending[k]) > 0:
                         self.to_correlate.append(k.split('_tothe')[0])
                 ncor = np.int(np.ceil(np.sqrt(len(self.to_correlate))))
                 gs_external = plt.matplotlib.gridspec.GridSpecFromSubplotSpec(len(self.to_correlate), 2, subplot_spec = gs_overarching[2], width_ratios=[1,5], hspace=0.1, wspace=0)
@@ -493,12 +566,12 @@ class TLC(Talker):
         dict['uncertainty'] = np.interp(new_bjd, self.TLC.bjd, self.TLC.uncertainty)
 
         # loop over the existing external variables, and populate them too
-        for evkey in self.TLC.externalvariables.keys():
-            #interpolator = scipy.interpolate.interp1d(self.TLC.bjd, #self.TLC.externalvariables[evkey])
+        for evkey in self.TLC.cotrending.keys():
+            #interpolator = scipy.interpolate.interp1d(self.TLC.bjd, #self.TLC.cotrending[evkey])
 
             #dict[evkey] = interpolator(new_bjd)
             ok = self.bad == False
-            dict[evkey] = np.interp(new_bjd, self.TLC.bjd[ok], self.TLC.externalvariables[evkey][ok])
+            dict[evkey] = np.interp(new_bjd, self.TLC.bjd[ok], self.TLC.cotrending[evkey][ok])
 
         # create the fake TLC
         return TLC(left=self.left, right=self.right, directory=self.directory + 'fake/', isfake=True, **dict)
@@ -582,9 +655,9 @@ class TLC(Talker):
 
 
     def ExternalsMatrixPlots(self):
-        new = dict(flux=self.instrumental(), time=self.timefrommidtransit(), residuals=self.residuals(), **self.externalvariables)
+        new = dict(flux=self.instrumental(), time=self.timefrommidtransit(), residuals=self.residuals(), **self.cotrending)
         keys = ['time']
-        evkeys = self.externalvariables.keys()
+        evkeys = self.cotrending.keys()
         evkeys.remove('ok')
         evkeys.sort()
         keys.extend(evkeys)
@@ -636,22 +709,22 @@ class TLC(Talker):
             kw['s'] = 10
             kw['alpha'] *= 0.5
             for k in self.ax_correlations.keys():
-                #self.ax_correlations[k].plot(ppm*self.instrumental()[ok], self.externalvariables[k][ok], **kw)[0]
-                #self.ax_timeseries[k].plot( time[ok], self.externalvariables[k][ok], **kw)
+                #self.ax_correlations[k].plot(ppm*self.instrumental()[ok], self.cotrending[k][ok], **kw)[0]
+                #self.ax_timeseries[k].plot( time[ok], self.cotrending[k][ok], **kw)
 
                 # plot the external variables
-                x = self.externalvariables[k]
+                x = self.cotrending[k]
                 self.ax_correlations[k].scatter(ppm*(self.residualsexceptfor(k)[ok]), x[ok], **kw)
                 if good:
                     binwidth = (np.nanmax(x[ok]) - np.nanmin(x[ok]))/10.0
                     bx, by, be = zachopy.oned.binto(x[ok], ppm*(self.residualsexceptfor(k)[ok]),  binwidth=binwidth, yuncertainty=self.uncertainty[ok], robust=False, sem=True)
                     self.ax_correlations[k].errorbar(by, bx, None, be, color='black', alpha=0.3, elinewidth=3, marker='o', linewidth=0, capthick=3)
-                self.ax_timeseries[k].scatter( time[ok], self.externalvariables[k][ok], **kw)
+                self.ax_timeseries[k].scatter( time[ok], self.cotrending[k][ok], **kw)
 
                 # set limits of plot windows
                 if good:
                     self.ax_correlations[k].set_xlim(ppm*np.min(self.instrumental()[ok]), ppm*np.max(self.instrumental()[ok]))
-                    self.ax_timeseries[k].set_ylim(np.min(self.externalvariables[k]), np.max(self.externalvariables[k]))
+                    self.ax_timeseries[k].set_ylim(np.min(self.cotrending[k]), np.max(self.cotrending[k]))
 
         ok = (self.bad == 0).nonzero()
         which = np.nanmedian(np.round((self.TM.smooth_unphased_tlc.bjd - self.TM.planet.t0.value)/self.TM.planet.period.value))
@@ -686,7 +759,7 @@ class TLC(Talker):
         kw['alpha'] = 0.5
         kw['linewidth'] = 1
         #for k in self.ax_correlations.keys():
-            #self.line_correlations[k] = self.ax_correlations[k].plot(ppm*justinstrument, self.TM.smooth_unphased_tlc.externalvariables[k],  **kw)[0]
+            #self.line_correlations[k] = self.ax_correlations[k].plot(ppm*justinstrument, self.TM.smooth_unphased_tlc.cotrending[k],  **kw)[0]
         #assert(np.std(ppm*justinstrument)>1)
 
         nsigma = 5
@@ -832,8 +905,8 @@ class TLC(Talker):
                 self.speak('creating a new TLC at epoch {0} with {1} data points'.format(u, nNearThisTransit))
                 ok = nearThisTransit
                 ev = {}
-                for k in self.externalvariables.keys():
-                    ev[k] = self.externalvariables[k][ok]
+                for k in self.cotrending.keys():
+                    ev[k] = self.cotrending[k][ok]
                 ev['bad'] = self.bad[ok]
                 if newdirectory is None:
                     newdirectory = self.directory
@@ -865,7 +938,7 @@ class TLC(Talker):
         grid = np.arange(first, last + size, size)
 
         tlckeys = ['bad','flux','uncertainty', 'bjd']
-        extvarkeys = self.externalvariables.keys()
+        extvarkeys = self.cotrending.keys()
         t, e = {}, {}
 
         for i, center in enumerate(grid):
@@ -896,17 +969,23 @@ class TLC(Talker):
             # assume the uncertainties are correct
             t['uncertainty'].append(np.sqrt(1.0/np.sum(1.0/self.uncertainty[ok]**2)))
             for k in extvarkeys:
-                e[k].append(np.average(self.externalvariables[k][ok],
+                e[k].append(np.average(self.cotrending[k][ok],
                                         weights=1.0/self.uncertainty[ok]**2))
 
         for k in t.keys():
             self.__dict__[k] = np.array(t[k])
 
         for k in e.keys():
-            self.externalvariables[k] = np.array(e[k])
+            self.cotrending[k] = np.array(e[k])
 
         self.n = len(self.bjd)
         self.setupColors(color=self.color)
+
+class fakeTLC(TLC):
+    def __init__(self, **kw):
+        TLC.__init__(self, **kw)
+        self.isfake = True
+
 
 def demo():
     planet = Planet(J=0.00, rp_over_rs=0.1, rsum_over_a=1.0/20.0, cosi=0.000, q=0.000, period=1.58, t0=2456000.0, esinw=0.0, ecosw=0.0)
