@@ -2,6 +2,7 @@ import emcee
 import matplotlib.pyplot as plt, numpy as np
 import datetime
 from craftroom.Talker import Talker
+from tqdm import tqdm
 
 class EnsembleSampler(emcee.EnsembleSampler, Talker):
     """Exactly the same as Dan F-M's ensemble sampler, but with some built-in plots."""
@@ -22,7 +23,7 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
         nchunks = np.int(np.ceil(np.float(N)/updates))
         pos = pos0
         count = 0
-        for i in range(nchunks):
+        for i in tqdm(range(nchunks)):
 
             pos, prob, state = self.run_mcmc(pos, updates)
             after = datetime.datetime.now()
@@ -31,7 +32,7 @@ class EnsembleSampler(emcee.EnsembleSampler, Talker):
             span = np.maximum((after - before).seconds, 1)/60.0
             rate = count/span
             remaining = (N-count)/rate
-            self.speak('completed {0}/{1} steps, in {2} minutes, with {3} minutes remaining'.format(count, N, span, remaining))
+            #self.speak('completed {0}/{1} steps, in {2} minutes, with {3} minutes remaining'.format(count, N, span, remaining))
 
         return pos, prob, state
 

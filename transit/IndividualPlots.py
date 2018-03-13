@@ -104,7 +104,7 @@ class IndividualPlots(Plot):
             tlc.temporarynudge = nudge
             plt.plot(points['t'], points['raw']/nudge, color='gray', marker='o', markersize=3, markeredgecolor='none', linewidth=0, alpha=0.5)
 
-            bx, by, be = zachopy.oned.binto(points['t'], points['raw'], binwidth=binsize,
+            bx, by, be = craftroom.oned.binto(points['t'], points['raw'], binwidth=binsize,
                 yuncertainty=tlc.effective_uncertainty[tlc.ok], robust=False, sem=True)
             plt.errorbar(bx, by/nudge, be, color='black', alpha=0.75, elinewidth=3, markersize=6, linewidth=0, capthick=0, zorder=40, **kwargs)
 

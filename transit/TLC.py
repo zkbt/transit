@@ -15,6 +15,7 @@ class TLC(Talker):
                         uncertainty=None,       # an array of flux uncertainties
                         cotrending={},          # a dictionary of arrays of cotrending variables
 
+                        isfake=True,
                         directory=None,         # the directory to associate with this light curve
                         basedirectory=None,     # if the directory isn't defined, make one inside a basedirectory
                         inputfilename=None,     # the filename of a text file to load (arrays and .npy loading fail)
@@ -30,7 +31,7 @@ class TLC(Talker):
         # initialize the Talker object
         Talker.__init__(self)
         self.color = color
-        self.isfake = False
+        self.isfake = isfake
 
         # initialize a white and red rescaling
         self.rescaling = 1.0
@@ -105,7 +106,8 @@ class TLC(Talker):
             self.telescope = telescope
             self.epoch = epoch
             self.bad = np.isfinite(self.flux) == False
-            self.speak('initialized {} directly from .arrays'.format(self, self.n))
+            if not self.isfake:
+                self.speak('initialized {} directly from .arrays'.format(self, self.n))
         else:
             try:
                 # second, try to load it from .a pre-saved TLC.npy file
@@ -274,8 +276,8 @@ class TLC(Talker):
         if type(self.color) == str:
             self.colors = {}
             if color=='eye':
-                self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=1.0)
-                self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=2.0)
+                self.colors['points'] = craftroom.color.nm2rgb([self.left/10, self.right/10], intensity=1.0)
+                self.colors['lines'] = craftroom.color.nm2rgb([self.left/10, self.right/10], intensity=2.0)
             else:
                 self.colors['lines'] = color
                 self.colors['points'] = color
@@ -389,7 +391,7 @@ class TLC(Talker):
             y = self.residuals()[ok]
             err = self.uncertainty[ok]*self.rescaling
 
-            bx, by, be = zachopy.oned.binto(x=x, y=y, yuncertainty=err, binwidth=timescale, sem=True, robust=False)
+            bx, by, be = craftroom.oned.binto(x=x, y=y, yuncertainty=err, binwidth=timescale, sem=True, robust=False)
             fine = np.isfinite(by)
             if np.sum(fine) > 1:
                 inflation = np.sqrt(np.mean(((by - 0)**2/be**2)[fine]))
@@ -558,23 +560,27 @@ class TLC(Talker):
         '''Create a fake transit light curve, using an input BJD array.'''
 
         # make an empty dictionary
-        dict = {}
+        d = {}
 
         # populate it with interpolated values
-        dict['bjd'] = new_bjd
-        dict['flux'] = np.interp(new_bjd, self.TLC.bjd, self.TLC.flux)
-        dict['uncertainty'] = np.interp(new_bjd, self.TLC.bjd, self.TLC.uncertainty)
+        d['bjd'] = new_bjd
+        d['flux'] = np.interp(new_bjd, self.TLC.bjd, self.TLC.flux)
+        d['uncertainty'] = np.interp(new_bjd, self.TLC.bjd, self.TLC.uncertainty)
+
 
         # loop over the existing external variables, and populate them too
+        cotrending = {}
         for evkey in self.TLC.cotrending.keys():
             #interpolator = scipy.interpolate.interp1d(self.TLC.bjd, #self.TLC.cotrending[evkey])
 
             #dict[evkey] = interpolator(new_bjd)
             ok = self.bad == False
-            dict[evkey] = np.interp(new_bjd, self.TLC.bjd[ok], self.TLC.cotrending[evkey][ok])
+            cotrending[evkey] = np.interp(new_bjd, self.TLC.bjd[ok], self.TLC.cotrending[evkey][ok])
+
+        d['cotrending'] = cotrending
 
         # create the fake TLC
-        return TLC(left=self.left, right=self.right, directory=self.directory + 'fake/', isfake=True, **dict)
+        return fakeTLC(left=self.left, right=self.right, directory=self.directory + 'fake/', isfake=True, **d)
 
     def LightcurvePlots(self):
         '''A quick tool to plot what the light curve (and external variables) looks like.'''
@@ -593,9 +599,11 @@ class TLC(Talker):
         t_phased = self.TM.planet.timefrommidtransit(self.bjd)
         t_unphased = self.bjd - self.TM.planet.t0.value
 
+        # KLUDGE (will slow down re-draws)
+        self.ready = False
         try:
             assert(self.ready)
-        except AssertionError:
+        except (AttributeError, AssertionError):
             self.points_phased = self.ax_phased.plot(t_phased, self.flux, **kw)
             self.points_phased_zoom = self.ax_phased_zoom.plot(t_phased, self.flux, **kw)
             self.points_unphased = self.ax_unphased.plot(t_unphased, self.flux, **kw)
@@ -717,7 +725,7 @@ class TLC(Talker):
                 self.ax_correlations[k].scatter(ppm*(self.residualsexceptfor(k)[ok]), x[ok], **kw)
                 if good:
                     binwidth = (np.nanmax(x[ok]) - np.nanmin(x[ok]))/10.0
-                    bx, by, be = zachopy.oned.binto(x[ok], ppm*(self.residualsexceptfor(k)[ok]),  binwidth=binwidth, yuncertainty=self.uncertainty[ok], robust=False, sem=True)
+                    bx, by, be = craftroom.oned.binto(x[ok], ppm*(self.residualsexceptfor(k)[ok]),  binwidth=binwidth, yuncertainty=self.uncertainty[ok], robust=False, sem=True)
                     self.ax_correlations[k].errorbar(by, bx, None, be, color='black', alpha=0.3, elinewidth=3, marker='o', linewidth=0, capthick=3)
                 self.ax_timeseries[k].scatter( time[ok], self.cotrending[k][ok], **kw)
 
@@ -741,15 +749,15 @@ class TLC(Talker):
 
         # plot histograms of the residuals
         expectation = [0, ppm*np.mean(self.uncertainty)]
-        zachopy.oned.plothistogram(ppm*self.instrumental()[ok], nbins=100, ax=self.ax_instrument_histogram,expectation =expectation , **kw)
-        zachopy.oned.plothistogram(ppm*self.residuals()[ok], nbins=100, ax=self.ax_residuals_histogram, expectation =expectation , **kw)
+        craftroom.oned.plothistogram(ppm*self.instrumental()[ok], nbins=100, ax=self.ax_instrument_histogram,expectation =expectation , **kw)
+        craftroom.oned.plothistogram(ppm*self.residuals()[ok], nbins=100, ax=self.ax_residuals_histogram, expectation =expectation , **kw)
 
 
         # plot binned RMS
-        zachopy.oned.plotbinnedrms(self.residuals()[ok], ax=self.ax_binnedrms, yunits=1e6,  **kw)
+        craftroom.oned.plotbinnedrms(self.residuals()[ok], ax=self.ax_binnedrms, yunits=1e6,  **kw)
 
         # plot the ACF
-        zachopy.oned.plotautocorrelation(self.residuals()[ok], ax =self.ax_acf,  **kw)
+        craftroom.oned.plotautocorrelation(self.residuals()[ok], ax =self.ax_acf,  **kw)
 
 
         # print text about the fit
@@ -983,8 +991,8 @@ class TLC(Talker):
 
 class fakeTLC(TLC):
     def __init__(self, **kw):
+        kw['isfake'] = True
         TLC.__init__(self, **kw)
-        self.isfake = True
 
 
 def demo():

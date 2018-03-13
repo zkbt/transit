@@ -22,21 +22,24 @@ class Planet(Parameters):
 		# overwrite defaults with input keywords
 		Parameters.__init__(self, **kwargs)
 
-		# set up the parameter constraints
+		# limit planet flux to >0 (remember this is just for lmfit)
 		self.J.parinfo['limited'] = [True, False]
-		self.J.parinfo['limits'] = [0, 100]
+		self.J.parinfo['limits'] = [-np.inf, np.inf]
 
+		# this assumes that transits *do* happen
 		self.b.parinfo['limited'] = [True, True]
 		self.b.parinfo['limits'] = [0.0, 1.0]
 
 		#self.q.parinfo['limited'] = [True, False]
 		#self.q.parinfo['limits'] = [0, 100]
 
+		# period can't drop below zero
 		self.period.parinfo['limited'] = [True, False]
-		self.period.parinfo['limits'] = [0, 100]
+		self.period.parinfo['limits'] = [0, np.inf]
 
-		self.t0.parinfo['limited'] = [True, False]
-		self.t0.parinfo['limits'] = [0, 1000000000]
+		# unlimited t0
+		self.t0.parinfo['limited'] = [False, False]
+		self.t0.parinfo['limits'] = [-np.inf, np.inf]
 
 
 
@@ -89,9 +92,9 @@ class Planet(Parameters):
 	def stellar_density(self):
 		'''requires an estimate of the mass ratio!'''
 		rsovera = self.rsovera.value
-		period = self.period.value*zachopy.units.day
+		period = self.period.value*craftroom.units.day
 		q = 0.0#self.q.value
-		return 3*np.pi/zachopy.units.G/period**2*(1.0/rsovera)**3/(1.0 + q)
+		return 3*np.pi/craftroom.units.G/period**2*(1.0/rsovera)**3/(1.0 + q)
 
 	@property
 	def duration(self):

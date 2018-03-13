@@ -801,8 +801,8 @@ class Fit(Synthesizer):
             self.gppdf.storeforhuman(output=d + 'gpparameters')
 
             gplna_map, gplntau_map = sampler.flatchain[np.argmax(sampler.flatlnprobability)]
-            gplna_unc = 1.48*zachopy.oned.mad(sampler.flatchain[:,0])
-            gplntau_unc = 1.48*zachopy.oned.mad(sampler.flatchain[:,1])
+            gplna_unc = 1.48*craftroom.oned.mad(sampler.flatchain[:,0])
+            gplntau_unc = 1.48*craftroom.oned.mad(sampler.flatchain[:,1])
 
             gplna = [gplna_map, gplna_unc]
             gplntau = [gplntau_map, gplntau_unc]
@@ -897,7 +897,7 @@ class LM(Fit):
                 # where are the residuals beyond 3 sigma?
                 outlierthreshold = 3.0
                 r = tlc.residuals()[ok]
-                sigma = 1.48*zachopy.oned.mad(r)
+                sigma = 1.48*craftroom.oned.mad(r)
                 outlier = (np.abs(r) > outlierthreshold*sigma)
                 tlc.bad[ok] = tlc.bad[ok] | (tlc.flags['outlier']*outlier)
                 self.speak("identified {0} new points as bad"

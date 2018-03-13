@@ -1,20 +1,31 @@
-from craftroom.Talker import Talker
-import matplotlib.pyplot as plt, numpy as np
+from .imports import *
+import lmfit
 #import craftroom.borrowed.mpfit.mpfit as mpfit
 import craftroom.oned
 # as emcee
-import emcee
+from .pemcee import EnsembleSampler
 import transit.PDF as PDF
 ##@profile
 
 class Fit(Talker):
     def __init__(self, model, **kwargs):
+        '''
+        Initialize a fitter, with a model connected to it.
+        '''
+
         Talker.__init__(self)
+
+        # what's the transit model?
         self.model = model
+
+        # this will store a previous version of a fit (e.g. for iterative outlier clipping)
         self.model.lastfit = self
 
     def findFloating(self):
-        # determine which parameters are floating
+        '''
+        Determine which parameters are floating.
+        '''
+
         self.floating = []
         for x in (self.model.planet, self.model.star, self.model.instrument):
             d = x.__dict__
@@ -23,7 +34,7 @@ class Fit(Talker):
                 if d[key].fixed == False:
                   self.floating.append(key)
                   self.speak('    '+key)
-              except:
+              except (KeyError, AttributeError):
                 pass
 
 
@@ -51,6 +62,9 @@ class Fit(Talker):
 
 
 class LM(Fit):
+    '''
+    A fitter that uses Levenberg-Marquardt
+    '''
     def __init__(self, model, **kwargs):
         Fit.__init__(self, model)
         self.directory = self.model.directory + 'lm/'
@@ -64,32 +78,44 @@ class LM(Fit):
             assert(remake==False)
             self.load()
         except:
-
+            # setup the complete list of parameters
             self.model.defineParameterList()
+
             # populate an array with the parameters that are floating
             self.findFloating()
+
             # apply the limb darkening priors, if required
             if ldpriors:
                 self.model.applyLDpriors()
 
-            # pull out the parameters into an array for mpfit
+            # pull out the parameters into an array, and a matching dictionary
             p0, parinfo = self.model.toArray()
 
+            # this is a little kludgy -- ultimately we should replace the
+            initiallmfitparameters = lmfit.Parameters()
+            for v in parinfo:
+                initiallmfitparameters.add(v['name'], value=v['value'],
+                        min=v['limits'][0], max=v['limits'][1]) # do I need to add a brute_step here?
+
             # perform the LM fit, to get best fit parameters and covariance matrix
-            self.speak('running mpfit minimization')
-            self.mpfitted = mpfit.mpfit(self.model.deviates, p0, parinfo=parinfo, quiet=quiet)
+            self.speak('running lmfit minimization')
+            self.lmfitted = lmfit.minimize(self.model.lmfitdeviates, initiallmfitparameters)
+
+            # outdated!
+            # self.mpfitted = mpfit.mpfit(self.model.deviates, p0, parinfo=parinfo, quiet=quiet)
 
             # set the parameters to their fitted values
-            for i in range(len(self.model.parameters)):
-                self.model.parameters[i].value = self.mpfitted.params[i]
+            for i, par in enumerate(self.model.parameters):
+                self.model.parameters[i].value = self.lmfitted.params[par.name].value
 
             # determine the uncertainties, including a rescaling term, by calculating the chisq of the good points
             ok = (self.model.TLC.bad == 0).nonzero()
-            self.model.fromArray(self.mpfitted.params)
+            self.model.fromlmfitParams(self.lmfitted.params)
 
             self.notes = {}
-            self.notes['chisq'] = np.sum((self.model.TLC.residuals()[ok]/self.model.TLC.uncertainty[ok])**2)
-            self.notes['dof'] =  self.mpfitted.dof
+            #self.notes['chisq'] = np.sum((self.model.TLC.residuals()[ok]/self.model.TLC.uncertainty[ok])**2)
+            self.notes['chisq'] = self.lmfitted.chisqr
+            self.notes['dof'] =  self.lmfitted.nfree
             self.notes['reduced_chisq'] = self.notes['chisq']/self.notes['dof']
             self.notes['rescaling'] = np.maximum(np.sqrt(self.notes['reduced_chisq']), 1)
             self.notes['floating'] = self.floating
@@ -102,17 +128,17 @@ class LM(Fit):
                 # where are the residuals beyond 4 sigma?
                 outlierthreshold = 3.0
                 r = self.model.TLC.residuals()[ok]
-                bad = (np.abs(r) > outlierthreshold*1.48*zachopy.oned.mad(r))
+                bad = (np.abs(r) > outlierthreshold*1.48*craftroom.oned.mad(r))
 
                 # mark those points as bad
                 self.model.TLC.bad[ok] = bad
                 self.speak("identified {0} new points as bad; refitting without them".format(np.sum(bad)))
 
                 # refit, after the outliers have been rejected
-                self.fit(plot=plot, quiet=quiet, ldpriors=ldpriors, identifyoutliers=False,  **kwargs)
+                self.fit(plot=plot, quiet=quiet, ldpriors=ldpriors, identifyoutliers=False, remake=remake, **kwargs)
 
             # store the covariance matrix of the fit, and the 1D uncertainties on the parameters
-            self.covariance = self.mpfitted.covar*self.notes['rescaling'] **2
+            self.covariance = self.lmfitted.covar*self.notes['rescaling'] **2
             for i in range(len(self.model.parameters)):
                 self.model.parameters[i].uncertainty = np.sqrt(self.covariance[i, i])
 
@@ -127,7 +153,7 @@ class LM(Fit):
 
             self.save()
             if plot:
-                self.model.fromArray(self.mpfitted.params)
+                self.model.fromlmfitParams(self.lmfitted.params)
                 assert(self.model.planet.k.uncertainty > 0)
                 self.model.TLC.DiagnosticsPlots(directory=self.directory)
 
@@ -174,7 +200,7 @@ class MCMC(Fit):
                 self.speak('  {parameter.name} picked from .uniform distribution spanning {parameter.limits}'.format(**locals()))
 
             # set up the emcee sampler
-            self.sampler = emcee.EnsembleSampler(nwalkers, nparameters, self.model.lnprob)
+            self.sampler = EnsembleSampler(nwalkers, nparameters, self.model.lnprob)
             self.names = [p.name for p in self.model.parameters]
 
             # add names to the sampler (for plotting progress, if desired)

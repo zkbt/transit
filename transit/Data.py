@@ -17,12 +17,12 @@ class Data(Talker):
 		if True:
 			self.colors = {}
 			#if color=='eye':
-			#	self.colors['points'] = zachopy.color.nm2rgb([self.left/10, self.right/10], 0.25)
-			#	self.colors['lines'] = zachopy.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
+			#	self.colors['points'] = craftroom.color.nm2rgb([self.left/10, self.right/10], 0.25)
+			#	self.colors['lines'] = craftroom.color.nm2rgb([self.left/10, self.right/10], intensity=3.0)
 			#else:
 			if True:
 				self.colors['lines'] = color
-				r, g, b = zachopy.color.name2color(color.lower())
+				r, g, b = craftroom.color.name2color(color.lower())
 				rgba = np.zeros((self.n, 4))
 				rgba[:,0] = r
 				rgba[:,1] = g

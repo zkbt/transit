@@ -62,7 +62,7 @@ class PDF(Talker):
 		strings = self.listParameters()
 		strings.sort()
 		for p in strings:
-			self.speak(p)
+			self.speak(p.strip())
 
 	def load(self, filename):
 		"""load the PDF from .a file"""

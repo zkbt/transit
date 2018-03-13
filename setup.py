@@ -47,7 +47,10 @@ setup(name = "transit",
       'Programming Language :: Python',
       'Topic :: Scientific/Engineering :: Astronomy'
       ],
-    install_requires=['numpy', 'matplotlib', 'scipy', 'astropy', 'tqdm', 'george', 'emcee'],
+    install_requires=['matplotlib',
+                      'numpy', 'scipy', 'astropy',
+                      'george', 'emcee', 'corner',
+                      'tqdm'],
     zip_safe=False,
     license='MIT',
 )

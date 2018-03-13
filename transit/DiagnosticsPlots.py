@@ -210,7 +210,7 @@ class DiagnosticsPlots(Plot):
                 self.ax_correlations[k].scatter(ppm*(res[ok]), x[ok], **kw)
                 if good:
                     binwidth = (np.nanmax(x[ok]) - np.nanmin(x[ok]))/10.0
-                    bx, by, be = zachopy.oned.binto(x[ok], ppm*(res[ok]), yuncertainty=self.tlc.uncertainty[ok], binwidth=binwidth, robust=False, sem=True)
+                    bx, by, be = craftroom.oned.binto(x[ok], ppm*(res[ok]), yuncertainty=self.tlc.uncertainty[ok], binwidth=binwidth, robust=False, sem=True)
                     self.ax_correlations[k].errorbar(by, bx, None, be, color='black', alpha=0.3, elinewidth=3, marker='o', linewidth=0, capthick=3)
                     sorted = np.argsort(x[ok])
                     self.ax_correlations[k].plot(ppm*inst[ok][sorted], x[ok][sorted], color='gray', linewidth=3, alpha=0.75 )
@@ -239,16 +239,16 @@ class DiagnosticsPlots(Plot):
         kw = {'color':self.tlc.colors['points'], 'linewidth':3, 'alpha':1.0}
 
         expectation = [0, ppm*np.mean(self.tlc.uncertainty)]
-        zachopy.oned.plothistogram(ppm*self.tlc.instrumental()[ok], nbins=100, ax=self.ax_instrument_histogram,expectation =expectation , **kw)
-        zachopy.oned.plothistogram(ppm*self.tlc.residuals()[ok], nbins=100, ax=self.ax_residuals_histogram, expectation =expectation , **kw)
+        craftroom.oned.plothistogram(ppm*self.tlc.instrumental()[ok], nbins=100, ax=self.ax_instrument_histogram,expectation =expectation , **kw)
+        craftroom.oned.plothistogram(ppm*self.tlc.residuals()[ok], nbins=100, ax=self.ax_residuals_histogram, expectation =expectation , **kw)
 
         try:
             # plot binned RMS
 
-            zachopy.oned.plotbinnedrms(self.tlc.residuals()[ok], ax=self.ax_binnedrms, yunits=1e6,  **kw)
+            craftroom.oned.plotbinnedrms(self.tlc.residuals()[ok], ax=self.ax_binnedrms, yunits=1e6,  **kw)
 
             # plot the ACF
-            zachopy.oned.plotautocorrelation(self.tlc.residuals()[ok], ax =self.ax_acf,  **kw)
+            craftroom.oned.plotautocorrelation(self.tlc.residuals()[ok], ax =self.ax_acf,  **kw)
         except AttributeError:
             pass
 

@@ -4,7 +4,7 @@ from .Planet import Planet
 from .Star import Star
 from .Instrument import Instrument
 
-import craftroom.color, zachopy.oned
+import craftroom.color, craftroom.oned
 import matplotlib.gridspec
 import matplotlib.patches
 import copy
@@ -239,6 +239,16 @@ class TM(Talker):
 		#print array
 		assert(count > 0)
 
+	def	fromlmfitParams(self, params):
+		'''Use an input lmfit parameter list object to assign the internal parameter attributes.'''
+		count = 0
+		for parameter in self.parameters:
+			parameter.value = params[parameter.name].value
+			count += 1
+		#print count
+		#print array
+		assert(count > 0)
+
 	def toArray(self):
 		'''Define an parameter array, by pulling them out of the internal parameter attributes.'''
 		list = []
@@ -263,23 +273,23 @@ class TM(Talker):
 			toplot = self.planet_model(self.smooth_phased_tlc)
 		#plt.plot(t_phased, toplot, **kw)
 		# '''KLUDGED COMMENTED OUT!'''
-		try:
-			for phased in [self.line_phased[0], self.line_phased_zoom[0]]:
-				phased.set_data(t_phased, self.model(self.smooth_phased_tlc))
-		except AttributeError:
-			self.line_phased = self.TLC.ax_phased.plot(t_phased,self.model(self.smooth_phased_tlc), **self.kw)
-			self.line_phased_zoom = self.TLC.ax_phased_zoom.plot(t_phased, self.model(self.smooth_phased_tlc), **self.kw)
+		#try:
+		#	for phased in [self.line_phased[0], self.line_phased_zoom[0]]:
+		#		phased.set_data(t_phased, self.model(self.smooth_phased_tlc))
+		#except AttributeError:
+		self.line_phased = self.TLC.ax_phased.plot(t_phased,self.model(self.smooth_phased_tlc), **self.kw)
+		self.line_phased_zoom = self.TLC.ax_phased_zoom.plot(t_phased, self.model(self.smooth_phased_tlc), **self.kw)
 
 	def plotUnphased(self):
 		'''Plot the light curve model, linear in time.'''
 		t_unphased = self.smooth_unphased_tlc.bjd - self.planet.t0.value
 		assert(len(t_unphased) == len(self.model(self.smooth_unphased_tlc)))
-		try:
-			for unphased in [self.line_unphased[0], self.line_unphased_zoom[0]]:
-				unphased.set_data(t_unphased, self.model(self.smooth_unphased_tlc))
-		except AttributeError:
-			self.line_unphased = self.TLC.ax_unphased.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
-			self.line_unphased_zoom = self.TLC.ax_unphased_zoom.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
+		#try:
+		#	for unphased in [self.line_unphased[0], self.line_unphased_zoom[0]]:
+		#		unphased.set_data(t_unphased, self.model(self.smooth_unphased_tlc))
+		#except AttributeError:
+		self.line_unphased = self.TLC.ax_unphased.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
+		self.line_unphased_zoom = self.TLC.ax_unphased_zoom.plot(t_unphased, self.model(self.smooth_unphased_tlc), **self.kw)
 
 
 	def plotDiagnostics(self):
@@ -302,6 +312,12 @@ class TM(Talker):
 	def plot(self):
 		'''Plot the model lines over the existing light curve structures.'''
 		self.kw = {'color':self.TLC.colors['lines'], 'linewidth':3, 'alpha':1.0}
+
+
+		# create smoothed TLC structures, so the modeling will work
+		self.smooth_phased_tlc = self.TLC.fake(np.linspace(-self.planet.period.value/2.0 + self.planet.t0.value + 0.01, self.planet.period.value/2.0 + self.planet.t0.value-0.01, 10000))
+		self.smooth_unphased_tlc = self.TLC.fake(np.linspace(np.min(self.TLC.bjd), np.max(self.TLC.bjd), 1000))
+
 		self.plotPhased()
 		self.plotUnphased()
 
@@ -317,6 +333,43 @@ class TM(Talker):
 			self.TLC.ax_raw.text(xtext, ytext, instrument_string)
 		except:
 			pass
+
+
+	##@profile
+	def lmfitdeviates(self, params, fjac=None, plotting=False):
+		'''Return the normalized deviates (an input for lmfit).'''
+
+		# populate the parameter attributes, using the input array
+		values = params
+		self.fromlmfitParams(params)
+
+		# if necessary, plot the light curve along with this step of the deviates calculation
+		ok = (self.TLC.bad == 0).nonzero()
+		devs = (self.TLC.flux[ok] - self.TM.model()[ok])/self.TLC.uncertainty[ok]
+
+		if plotting:
+			self.TLC.ready = False
+			self.TLC.LightcurvePlots()
+			print('chisq = {}'.format(np.sum(devs**2)))
+			plt.show()
+
+
+
+		# add limb darkening priors (these are just independent right now, but that could be better)
+		try:
+			prioru1 = (self.star.u1.value - self.u1prior_value)/self.u1prior_uncertainty
+			prioru2 = (self.star.u2.value - self.u2prior_value)/self.u2prior_uncertainty
+			devs = np.append(devs, prioru1)
+			devs = np.append(devs, prioru2)
+			#print '==============================='
+			#print 'u1: ({value} - {center})/{uncertainty}'.format(value = self.star.u1.value, center=self.u1prior_value, uncertainty =self.u1prior_uncertainty)
+			#print 'u2: ({value} - {center})/{uncertainty}'.format(value = self.star.u2.value, center=self.u2prior_value, uncertainty =self.u2prior_uncertainty)
+
+		except:
+			pass
+
+		# lmfit just wants the deviates
+		return devs
 
 	##@profile
 	def deviates(self, p, fjac=None, plotting=False):
