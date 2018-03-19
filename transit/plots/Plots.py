@@ -1,4 +1,4 @@
-from .imports import *
+from ..imports import *
 
 def plotbinned(x, flux, uncertainty=None, alpha=0.5, bin=6.0/24.0/60.0, **kwargs):
     bx, by, be = craftroom.oned.binto(x, flux,  yuncertainty=uncertainty, binwidth=bin, robust=False, sem=True)

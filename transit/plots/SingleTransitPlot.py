@@ -1,48 +1,53 @@
 from .Plots import *
 
-class QuicklookTransitPlot(Plot):
+class SingleTransitPlot(Plot):
     '''Plot one TLC, with its currently set model (potentially sampling from .a GP).'''
 
     def __init__(self, **kwargs):
         Plot.__init__(self, **kwargs)
 
     def setup(self, tlc=None, **kwargs):
+
+        # attach the TLC to this visualizer
+
         self.tlc = tlc
+        '''
         try:
             for k,v in self.tlc.quicklook.iteritems():
                 self.__dict__[k] = v
             return
         except AttributeError:
             tlc.quicklook = self
+        '''
 
-        self.figure = plt.figure(self.tlc.name, figsize=(15,20))
-        gs = plt.matplotlib.gridspec.GridSpec(5,2,
-                    height_ratios=[1,1,1,1,1],width_ratios=[1, .5],
-                    wspace=0,hspace=0.1,left=0.15)
+        self.figure = plt.figure(self.tlc.name, figsize=(8,4))
+        gs = plt.matplotlib.gridspec.GridSpec(3,2,
+                    height_ratios=[1, 1, 0.4],width_ratios=[1, 0.3],
+                    wspace=0, hspace=0.1, left=0.15)
 
         # create the axes
         self.ax = {}
         self.ax['raw'] = plt.subplot(gs[0,0])
-        for i, k in enumerate(['cleaned',  'residuals', 'cleanedfromgp', 'residualsfromgp']):
+        for i, k in enumerate(['cleaned',  'residuals']):
             self.ax[k] = plt.subplot(gs[i+1,0], sharex=self.ax['raw'])
 
         self.ax['text'] = plt.subplot(gs[:,1])
         self.ax['text'].axis('off')
 
         for k, a in self.ax.iteritems():
-            if k != 'residualsfromgp':
+            if k != 'residuals':
                 plt.setp(a.get_xticklabels(), visible=False)
 
         self.ax['raw'].set_ylabel('Raw')
         self.ax['cleaned'].set_ylabel('Without\nInstrument')
-        self.ax['cleanedfromgp'].set_ylabel('Without\nGP')
         self.ax['residuals'].set_ylabel('O-C')
-        self.ax['residualsfromgp'].set_ylabel('O-C-GP')
-        self.ax['residualsfromgp'].set_xlabel('Time from .Mid-transit (days)')
+        self.ax['residuals'].set_xlabel('Time from .Mid-transit (days)')
 
+        # pull out the time to plot
         t = tlc.TM.planet.timefrommidtransit(tlc.bjd)
-
         self.ax['raw'].set_xlim(np.min(t), np.max(t))
+
+        # set up a fake TLC for plotting the model
         self.smoothed = tlc.fake(np.linspace(np.min(tlc.bjd), np.max(tlc.bjd), 1000))
 
     def plot(self, **kwargs):
@@ -57,50 +62,22 @@ class QuicklookTransitPlot(Plot):
         pkw = dict(color=color, markeredgecolor=color, linewidth=0, marker='o', markersize=5, alpha=0.5, )
         lkw = dict(color='gray', linewidth=2,  alpha=0.5, )
 
-        # have to do this to make sure we recomputed the gp
-        lnp = tlc.gp_lnprob()
-
-        mean_wiggle, cov = tlc.gp.predict(tlc.residuals()[tlc.ok], self.smoothed.bjd)
-        i = np.arange(len(mean_wiggle))
-        std = np.sqrt(cov[i,i])
-
-
-
+        # make the plots
         k = 'raw'
         self.points[k] = self.ax[k].plot(t[ok],tlc.flux[ok],**pkw)
-
         k = 'cleaned'
         self.points[k] = self.ax[k].plot(t[ok],tlc.corrected()[ok],**pkw)
-
-        #self.lines[k] = self.ax[k].plot()
         k = 'residuals'
         self.points[k] = self.ax[k].plot(t[ok],tlc.residuals()[ok],**pkw)
-        #self.lines[k] = self.ax[k].plot(t_smooth, mean+std,**lkw)
-        #self.lines[k] = self.ax[k].plot(t_smooth, mean-std,**lkw)
-
-        n = 10
-        for i in range(n+1):
-            wiggle = tlc.gp.sample_conditional(tlc.residuals()[tlc.ok], self.smoothed.bjd)
-            if i == n:
-                lkw['color'] = 'black'
-                wiggle = mean_wiggle
-
-            k = 'residuals'
-            self.lines[k] = self.ax[k].plot(t_smooth, wiggle ,**lkw)
-            k = 'cleaned'
-            self.lines[k] = self.ax[k].plot(t_smooth, wiggle + tlc.TM.planet_model(tlc=self.smoothed) ,**lkw)
-            k = 'raw'
-            self.lines[k] = self.ax[k].plot(t_smooth, wiggle + tlc.TM.model(tlc=self.smoothed) ,**lkw)
 
 
-        mean_wiggle, cov = tlc.gp.predict(tlc.residuals()[tlc.ok], tlc.bjd[tlc.ok])
-        k = 'cleanedfromgp'
-        self.points[k] = self.ax[k].plot(t[ok],tlc.corrected()[ok] - mean_wiggle,**pkw)
-        self.lines[k] = self.ax[k].plot(t_smooth, tlc.TM.planet_model(tlc=self.smoothed) ,**lkw)
+        k = 'residuals'
+        self.lines[k] = self.ax[k].plot(t_smooth, np.zeros_like(t_smooth), **lkw)
+        k = 'cleaned'
+        self.lines[k] = self.ax[k].plot(t_smooth, tlc.TM.planet_model(tlc=self.smoothed), **lkw)
+        k = 'raw'
+        self.lines[k] = self.ax[k].plot(t_smooth, tlc.TM.model(tlc=self.smoothed), **lkw)
 
-        k = 'residualsfromgp'
-        self.points[k] = self.ax[k].plot(t[ok],tlc.residuals()[ok]-mean_wiggle,**pkw)
-        self.lines[k] = self.ax[k].plot(t[ok], np.zeros_like(t[ok]),**lkw)
 
         self.printParameters()
         plt.draw()

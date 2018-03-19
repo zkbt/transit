@@ -76,6 +76,7 @@ class TLC(Talker):
                 self.directory = os.path.join(basedirectory, 'T={telescope}_E={epoch}/'.format(**self.__dict__))
         if self.directory is not None:
             mkdir(self.directory)
+        self.inputfilename = inputfilename
 
         # initialize the TLC by filling it with data
         self.initialize(bjd=bjd, flux=flux, uncertainty=uncertainty,
@@ -107,7 +108,7 @@ class TLC(Talker):
             self.epoch = epoch
             self.bad = np.isfinite(self.flux) == False
             if not self.isfake:
-                self.speak('initialized {} directly from .arrays'.format(self, self.n))
+                self.speak('initialized {} directly from\n arrays'.format(self, self.n))
         else:
             try:
                 # second, try to load it from .a pre-saved TLC.npy file
@@ -115,12 +116,12 @@ class TLC(Talker):
                 self.load(self.directory)
                 assert(self.bad.shape == self.flux.shape)
                 isnew = False
-                self.speak('initialized {} from .pre-saved file {}'.format(self, self.directory))
+                self.speak('initialized {} from pre-saved file\n{}'.format(self, self.directory))
             except (IOError,AssertionError):
                 # third, try to load it from .a raw file (often slower than the first two)
                 self.fromFile(self.inputfilename, **kwargs)
                 self.speak("failed to load!")
-                self.speak('initialized {} from .raw file {}'.format(self, self.inputfilename))
+                self.speak('initialized {} from raw file\n{}'.format(self, self.inputfilename))
 
 
         try:
@@ -250,10 +251,10 @@ class TLC(Talker):
         medflux = np.nanmedian(data['flux'])
         kwargs['uncertainty'] /= medflux
         kwargs['flux'] /= medflux
-
         # populate the light curve from .these arrays
         self.fromArrays(**kwargs)
 
+        self.bad = kwargs['ok'] == False
 
 
 

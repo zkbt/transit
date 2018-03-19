@@ -3,7 +3,7 @@ import eb
 from .Planet import Planet
 from .Star import Star
 from .Instrument import Instrument
-
+from .plots.SingleTransitPlot import SingleTransitPlot
 import craftroom.color, craftroom.oned
 import matplotlib.gridspec
 import matplotlib.patches
@@ -24,8 +24,6 @@ class TM(Talker):
 		# setup the talker
 		Talker.__init__(self)
 
-		# create an empty array of parameters for eb
-		self.ebparams = np.zeros(eb.NPAR, dtype=np.double)
 
 		# keep track of a depth for plotting, if necessary
 		self.depthassumedforplotting=depthassumedforplotting
@@ -76,109 +74,6 @@ class TM(Talker):
 		self.RVC.TM  = self
 		self.RVC.RVC = self.RVC
 
-	#@profile
-	def set_ebparams(self):
-		'''Set up the parameters required for eb. '''
-		# These are the basic parameters of the model.
-		self.ebparams[eb.PAR_J]      =  self.planet.surface_brightness_ratio  # J surface brightness ratio
-		self.ebparams[eb.PAR_RASUM]  =  self.planet.rsum_over_a  # (R_1+R_2)/a
-		self.ebparams[eb.PAR_RR]     =  self.planet.rp_over_rs  # R_2/R_1
-		self.ebparams[eb.PAR_COSI]   =  self.planet.cosi  # cos i
-
-		# Mass ratio is used only for computing ellipsoidal variation and
-		# light travel time.  Set to zero to disable ellipsoidal.
-		self.ebparams[eb.PAR_Q]      =  0#self.planet.q
-
-		# Light travel time coefficient.
-		#ktot = 55.602793  # K_1+K_2 in km/s
-		#cltt = 1000*ktot / eb.LIGHT
-
-		# Set to zero if you don't need light travel correction (it's fairly slow
-		# and can often be neglected).
-		self.ebparams[eb.PAR_CLTT]   =  0#cltt#*(self.planet.q.value == 0.0)      # ktot / c
-
-		# Radiative properties of star 1.
-		self.ebparams[eb.PAR_LDLIN1] = self.star.u1.value   # u1 star 1
-		self.ebparams[eb.PAR_LDNON1] = self.star.u2.value  # u2 star 1
-		self.ebparams[eb.PAR_GD1]    = self.star.gd.value     # gravity darkening, std. value
-		self.ebparams[eb.PAR_REFL1]  = self.star.albedo.value      # albedo, std. value
-
-		# Spot model.  Assumes spots on star 1 and not eclipsed.
-		self.ebparams[eb.PAR_ROT1]   =  1.0# 0.636539  # rotation parameter (1 = sync.)
-		self.ebparams[eb.PAR_FSPOT1] =  0.0       # fraction of spots eclipsed
-		self.ebparams[eb.PAR_OOE1O]  =  0.0       # base spottedness out of eclipse
-		self.ebparams[eb.PAR_OOE11A] =  0.0#0.006928  # *sin
-		self.ebparams[eb.PAR_OOE11B] =  0.0 # *cos
-
-		# PAR_OOE12* are sin(2*rot*omega) on star 1,
-		# PAR_OOE2* are for spots on star 2.
-
-		# Assume star 2 is the same as star 1 but without spots.
-		self.ebparams[eb.PAR_LDLIN2] = self.ebparams[eb.PAR_LDLIN1]
-		self.ebparams[eb.PAR_LDNON2] = self.ebparams[eb.PAR_LDNON1]
-		self.ebparams[eb.PAR_GD2]    = self.ebparams[eb.PAR_GD1]
-		self.ebparams[eb.PAR_REFL2]  = self.ebparams[eb.PAR_REFL1]
-
-		# Orbital parameters.
-		self.ebparams[eb.PAR_ECOSW]  =  self.planet.ecosw.value  # ecosw
-		self.ebparams[eb.PAR_ESINW]  = self.planet.esinw.value  # esinw
-		self.ebparams[eb.PAR_P]      = self.planet.period.value  # period
-		self.ebparams[eb.PAR_T0]     = self.planet.t0.value + self.planet.dt.value # T0 (epoch of primary eclipse), with an offset of dt applied
-		# OTHER NOTES:
-		#
-		# To do standard transit models (a'la Mandel & Agol),
-		# set J=0, q=0, cltt=0, albedo=0.
-		# This makes the secondary dark, and disables ellipsoidal and reflection.
-		#
-		# The strange parameterization of radial velocity is to retain the
-		# flexibility to be able to model just light curves, SB1s, or SB2s.
-		#
-		# For improved precision, it's best to subtract most of the "DC offset"
-		# from .T0 and the time array (e.g. take off the nominal value of T0 or
-		# the midtime of the data array) and add it back on at the end when
-		# printing self.ebparams[eb.PAR_T0] and vder[eb.PAR_TSEC].  Likewise the period
-		# can cause scaling problems in minimization routines (because it has
-		# to be so much more precise than the other parameters), and may need
-		# similar treatment.
-
-	def stellar_rv(self, rvc=None, t=None):
-		self.set_ebparams()
-
-		# by default, will use the linked RVC, but could use a custom one (e.g. high-resolution for plotting), or just times
-		if rvc is None:
-			rvc = self.RVC
-
-		if t is None:
-			t = rvc.bjd
-
-		# make sure the types are okay for Jonathan's inputs
-		typ = np.empty_like(t, dtype=np.uint8)
-		typ.fill(eb.OBS_VRAD1)
-
-		rv = self.planet.semiamplitude.value*eb.model(self.ebparams, t, typ) + self.star.gamma.value
-		assert(np.isfinite(rv).all())
-		return rv
-
-	#@profile
-	def planet_model(self, tlc=None, t=None):
-		'''Model of the planetary transit.'''
-		self.set_ebparams()
-
-		# by default, will use the linked TLC, but could use a custom TLC
-		# 	 (e.g. a high-resolution one, for plotting)
-		if tlc is None:
-			tlc = self.TLC
-
-		# if called with a "t=" keyword set, then will use those custom times
-		if t is None:
-			t = tlc.bjd
-
-		# make sure the types are okay for Jonathan's inputs
-		typ = np.empty_like(t, dtype=np.uint8)
-		typ.fill(eb.OBS_MAG)
-
-		# work in relative flux (rather than magnitudes) -- why did I do this?
-		return 10**(-0.4*eb.model(self.ebparams, t, typ))
 
 	##@profile
 	def instrument_model(self, tlc=None):
@@ -348,8 +243,7 @@ class TM(Talker):
 		devs = (self.TLC.flux[ok] - self.TM.model()[ok])/self.TLC.uncertainty[ok]
 
 		if plotting:
-			self.TLC.ready = False
-			self.TLC.LightcurvePlots()
+			self.plotter = SingleTransitPlot(tlc=self.TLC)
 			print('chisq = {}'.format(np.sum(devs**2)))
 			plt.show()
 
@@ -452,3 +346,148 @@ class TM(Talker):
 
 	def __repr__(self):
 		return self.TLC.__repr__().replace('TLC', 'TM')
+
+
+
+
+class TMKreidberg(TM):
+	#@profile
+	def planet_model(self, tlc=None, t=None):
+		'''Model of the planetary transit.'''
+		self.set_ebparams()
+
+		# by default, will use the linked TLC, but could use a custom TLC
+		# 	 (e.g. a high-resolution one, for plotting)
+		if tlc is None:
+			try:
+				tlc = self.TLC
+			except AttributeError:
+				self.speak('no TLC is connected to the TM')
+
+		# if called with a "t=" keyword set, then will use those custom times
+		if t is None:
+			t = tlc.bjd
+
+		# MAKE A BATMAN/SPIDERMAN MODEL!
+
+		# work in relative flux (rather than magnitudes) -- why did I do this?
+		return 10**(-0.4*eb.model(self.ebparams, t, typ))
+
+
+
+
+
+class TMIrwin(TM):
+
+	def __init__(self, *args, **kwargs):
+		TM.__init__(self, *args, **kwargs)
+		
+		# create an empty array of parameters for eb
+		self.ebparams = np.zeros(eb.NPAR, dtype=np.double)
+
+	#@profile
+	def set_ebparams(self):
+		'''Set up the parameters required for eb. '''
+		# These are the basic parameters of the model.
+		self.ebparams[eb.PAR_J]      =  self.planet.surface_brightness_ratio  # J surface brightness ratio
+		self.ebparams[eb.PAR_RASUM]  =  self.planet.rsum_over_a  # (R_1+R_2)/a
+		self.ebparams[eb.PAR_RR]     =  self.planet.rp_over_rs  # R_2/R_1
+		self.ebparams[eb.PAR_COSI]   =  self.planet.cosi  # cos i
+
+		# Mass ratio is used only for computing ellipsoidal variation and
+		# light travel time.  Set to zero to disable ellipsoidal.
+		self.ebparams[eb.PAR_Q]      =  0#self.planet.q
+
+		# Light travel time coefficient.
+		#ktot = 55.602793  # K_1+K_2 in km/s
+		#cltt = 1000*ktot / eb.LIGHT
+
+		# Set to zero if you don't need light travel correction (it's fairly slow
+		# and can often be neglected).
+		self.ebparams[eb.PAR_CLTT]   =  0#cltt#*(self.planet.q.value == 0.0)      # ktot / c
+
+		# Radiative properties of star 1.
+		self.ebparams[eb.PAR_LDLIN1] = self.star.u1.value   # u1 star 1
+		self.ebparams[eb.PAR_LDNON1] = self.star.u2.value  # u2 star 1
+		self.ebparams[eb.PAR_GD1]    = self.star.gd.value     # gravity darkening, std. value
+		self.ebparams[eb.PAR_REFL1]  = self.star.albedo.value      # albedo, std. value
+
+		# Spot model.  Assumes spots on star 1 and not eclipsed.
+		self.ebparams[eb.PAR_ROT1]   =  1.0# 0.636539  # rotation parameter (1 = sync.)
+		self.ebparams[eb.PAR_FSPOT1] =  0.0       # fraction of spots eclipsed
+		self.ebparams[eb.PAR_OOE1O]  =  0.0       # base spottedness out of eclipse
+		self.ebparams[eb.PAR_OOE11A] =  0.0#0.006928  # *sin
+		self.ebparams[eb.PAR_OOE11B] =  0.0 # *cos
+
+		# PAR_OOE12* are sin(2*rot*omega) on star 1,
+		# PAR_OOE2* are for spots on star 2.
+
+		# Assume star 2 is the same as star 1 but without spots.
+		self.ebparams[eb.PAR_LDLIN2] = self.ebparams[eb.PAR_LDLIN1]
+		self.ebparams[eb.PAR_LDNON2] = self.ebparams[eb.PAR_LDNON1]
+		self.ebparams[eb.PAR_GD2]    = self.ebparams[eb.PAR_GD1]
+		self.ebparams[eb.PAR_REFL2]  = self.ebparams[eb.PAR_REFL1]
+
+		# Orbital parameters.
+		self.ebparams[eb.PAR_ECOSW]  =  self.planet.ecosw.value  # ecosw
+		self.ebparams[eb.PAR_ESINW]  = self.planet.esinw.value  # esinw
+		self.ebparams[eb.PAR_P]      = self.planet.period.value  # period
+		self.ebparams[eb.PAR_T0]     = self.planet.t0.value + self.planet.dt.value # T0 (epoch of primary eclipse), with an offset of dt applied
+		# OTHER NOTES:
+		#
+		# To do standard transit models (a'la Mandel & Agol),
+		# set J=0, q=0, cltt=0, albedo=0.
+		# This makes the secondary dark, and disables ellipsoidal and reflection.
+		#
+		# The strange parameterization of radial velocity is to retain the
+		# flexibility to be able to model just light curves, SB1s, or SB2s.
+		#
+		# For improved precision, it's best to subtract most of the "DC offset"
+		# from .T0 and the time array (e.g. take off the nominal value of T0 or
+		# the midtime of the data array) and add it back on at the end when
+		# printing self.ebparams[eb.PAR_T0] and vder[eb.PAR_TSEC].  Likewise the period
+		# can cause scaling problems in minimization routines (because it has
+		# to be so much more precise than the other parameters), and may need
+		# similar treatment.
+
+	def stellar_rv(self, rvc=None, t=None):
+		self.set_ebparams()
+
+		# by default, will use the linked RVC, but could use a custom one (e.g. high-resolution for plotting), or just times
+		if rvc is None:
+			rvc = self.RVC
+
+		if t is None:
+			t = rvc.bjd
+
+		# make sure the types are okay for Jonathan's inputs
+		typ = np.empty_like(t, dtype=np.uint8)
+		typ.fill(eb.OBS_VRAD1)
+
+		rv = self.planet.semiamplitude.value*eb.model(self.ebparams, t, typ) + self.star.gamma.value
+		assert(np.isfinite(rv).all())
+		return rv
+
+	#@profile
+	def planet_model(self, tlc=None, t=None):
+		'''Model of the planetary transit.'''
+		self.set_ebparams()
+
+		# by default, will use the linked TLC, but could use a custom TLC
+		# 	 (e.g. a high-resolution one, for plotting)
+		if tlc is None:
+			try:
+				tlc = self.TLC
+			except AttributeError:
+				self.speak('no TLC is connected to the TM')
+
+		# if called with a "t=" keyword set, then will use those custom times
+		if t is None:
+			t = tlc.bjd
+
+		# make sure the types are okay for Jonathan's inputs
+		typ = np.empty_like(t, dtype=np.uint8)
+		typ.fill(eb.OBS_MAG)
+
+		# work in relative flux (rather than magnitudes) -- why did I do this?
+		return 10**(-0.4*eb.model(self.ebparams, t, typ))

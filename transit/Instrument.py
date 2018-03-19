@@ -17,7 +17,7 @@ class Instrument(Parameters):
 		except:
 			dict['C'] = 1.0
 
-		try:
+		if tlc:
 			# include terms of (ev)^power for all the external variables available
 			for power in np.arange(order)+1:
 				for evkey in tlc.cotrending.keys():
@@ -30,10 +30,10 @@ class Instrument(Parameters):
 			# include other custom instrument parameters
 			for k in kwargs.keys():
 				dict[k] = kwargs[k]
-		except AttributeError:
-			pass
+		#except AttributeError:
+		#	pass
 
-
+		print(dict)
 		# include all the parameters explicitly defined here
 		Parameters.__init__(self, directory=directory, **dict)
 
